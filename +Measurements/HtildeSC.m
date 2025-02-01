@@ -17,4 +17,5 @@ rhoDot = dot((R - Rs),(V - Vs)) / rho;
 
 % construct Htilde matrix
 HtildeSC = [(R-Rs)'/rho, zeros(1,3); ((V-Vs)'*rho-rhoDot*(R-Rs)') / (rho^2), (R-Rs)'/rho];
+
 end
