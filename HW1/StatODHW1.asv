@@ -334,6 +334,17 @@ statState = [Rs; Vs];
 
 %% Problem 4 - Simulating Measurements
 
+% earth rotation
+
+Re = Const.OrbConst.EarthRadius;
+
+%% reference transmit frequency for Doppler
+refTransFreq = 8.44*10^9; % Hz
+
+% speed of light 
+c = 229792; % km/s
+
+
 % staion lat and long
 stations.stat1.lat = -35.398333;
 stations.stat1.long = 148.981944;
@@ -344,106 +355,54 @@ stations.stat2.long = 355.749444;
 stations.stat3.lat = 35.247164;
 stations.stat3.long = 243.205;
 
-% earth rotation
-rotEarth.Deg = 360 / (24*60*60); % deg/sec 
-rotEarth.rad = (2*pi) / (24*60*60);
-
 % initial rotation of ECEF wrt ECI
 theta0 = 122; 
-
 Re = Const.OrbConst.EarthRadius;
 
+% calculate the ECI for each station
+[stationECI] = Measurements.StationStateECI(stations, theta0, Re, t);
 
-[stationECI] = Measurements.StationStateECI(stations, theta0, Re, t)
-
-stationECIcell = stationECI';
-
-stationECIcell{1:4}(1)
-
-
-% convert groundstations to cartesian 
-[stat1.ecef.x, stat1.ecef.y, stat1.ecef.z] = sph2cart(deg2rad(stat1.long), deg2rad(stat1.lat), 6378);
-[stat2.ecef.x, stat2.ecef.y, stat2.ecef.z] = sph2cart(deg2rad(stat2.long), deg2rad(stat2.lat), 6378);
-[stat3.ecef.x, stat3.ecef.y, stat3.ecef.z] = sph2cart(deg2rad(stat3.long), deg2rad(stat3.lat), 6378);
-
-% build components for ease
-stat1ecef = [stat1.ecef.x, stat1.ecef.y, stat1.ecef.z];
-stat2ecef = [stat2.ecef.x, stat2.ecef.y, stat2.ecef.z];
-stat3ecef = [stat3.ecef.x, stat3.ecef.y, stat3.ecef.z];
-
-% each column is station efec position
-statAllecef = [stat1ecef',stat2ecef',stat3ecef'];
-
-%--- compute the velocity of each station 
-
-% projection of each station onto XY plane
-stat1XYproj = [stat1ecef(1:2)';0];
-stat2XYproj = [stat2ecef(1:2)';0];
-stat3XYproj = [stat3ecef(1:2)';0];
-
-statAllXYProj = [stat1XYproj, stat2XYproj, stat3XYproj];
-
-for stat = 1:3
-    
-    % station velocity magnitude
-    statVelMag(stat) = rotEarth.rad * norm(statAllXYProj(:,stat));
-    
-    % velocity unit vector
-    statVelUnitVec(1:3,stat) = cross([0;0;1], statAllXYProj(:,stat)) / (norm([0;0;1])*norm(statAllXYProj(:,stat)));
-    
-    % station velocity vector
-    stationVeloVec(1:3,stat) = statVelMag(stat) * statVelUnitVec(1:3,stat);
-    
-end
-
-% create a function that rotates about the z axis - ransformation btwn both
-% frames! 
-Rz = @(Theta) [cosd(Theta) -sind(Theta) 0; sind(Theta) cosd(Theta) 0; 0 0 1];
-
-% theta of Earth rotation - to be updated each step!
-thetaCurrent = Theta0;
-
-%% reference transmit frequency for Doppler
-refTransFreq = 8.44*10^9; % Hz
-
-% speed of light 
-c = 229792; % km/s
-
-% simulate the Earth spinning
+% get just the stations position in ECI
 for i = 1:length(t)
-    
-    % how far the Earth has rotated - EVERY 10 SECONDS!
-    thetaCurrent = t(i)*rotEarth.Deg + Theta0; 
-    
-    % reference trajecotry is satellite position and velocity
- %   satPos = refPos'(i,:);
-    satVel = refVel(i,:);
-    
-  %  spacecraftState(:,i) = [satPos'; satVel'];
-    
     for j = 1:3
-    % put the station coordinates into ECI
-    statECI{i,j} = Rz(-thetaCurrent)*statAllecef(:,j);
-    
-    % state of this station
- %   stationState(:,j) = [statECI(:,j); stationVeloVec(1:3,stat)];
-    
+        stationPosECI{i,j} = stationECI{i,j}(1:3);
+        stationVelECI{i,j} = stationECI{i,j}(4:6);
     end
 end
-    
-% this gives visibility mask 
-    [visibilityMask, viewingAngles] = Measurements.VisibilityMask(statECI, refPos', 10, t);
-    
-    for i = 1:length(t)
-    % Get the linearized measurement H matrix going good
-    Measurements.HtildeSC(scState, statState)
-    
-    
-    
-    
+
+
+%% this gives visibility mask 
+[visibilityMask, viewingAngles] = Measurements.VisibilityMask(stationPosECI, refPos', 10, t);
+
+% spacecraft reference state
+spacecraftState = [refPos'; refVel'];
+
+% get measurements for the spacecraft from each station
+
+for i = 1:length(t)
+    for j = 1:3
+        range{i,j}        = spacecraftState(1:3,i) - stationPosECI{i,j} * visibilityMask(i,j);
+        rangeNorm(i,j)    = norm(range{i,j});
+        rangeRate{i,j}    = dot(range{i,j}, spacecraftState(4:6,i) - stationVelECI{i,j}) / rangeNorm(i,j);
+        rangeDotNorm(i,j) = norm(rangeRate{i,j});
     end
-    
-    
+end
+
+
+plot(rangeNorm)
+plot(rangeDotNorm)
+
+% get measurements for each station
+station1meas = horzcat(rangeRangeRateMeas{:,1});
+station2meas = horzcat(rangeRangeRateMeas{:,2});
+station3meas = horzcat(rangeRangeRateMeas{:,3});
+
+subplot(2,1,1)
+plot(t, station1meas(1,:), t, station2meas(1,:), t, station3meas(1,:))
+
+subplot(2,1,2)
+plot(t, station1meas(2,:), t, station2meas(2,:), t, station3meas(2,:))
+
 %     % get LOS for station to satellite
 %     rho(:,j) = spacecraftState(1:3,i) - statECI(:,j);
 %     
