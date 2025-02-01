@@ -50,9 +50,6 @@ for t = 1:length(tSpan)
         % Station velocity vector
         stationVelECEF = stationVelMag * statVelUnitVec;
         
-        % Station state in ECEF (position + velocity)
-        stationStateECEF = [stationPosECEF; stationVelECEF];
-        
         % --- Transform from ECEF to ECI
         % Rotation matrix for simple transformation
         Rz = @(Theta) [cosd(Theta), -sind(Theta), 0; sind(Theta), cosd(Theta), 0; 0, 0, 1];
@@ -68,4 +65,9 @@ for t = 1:length(tSpan)
         stationECI{i, t} = [statPosECI; statVelECi];
          
     end
+    
+end
+
+stationECI = stationECI';
+
 end

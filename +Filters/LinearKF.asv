@@ -1,15 +1,16 @@
-function [] = LinearKF(IC, pert, P0, R, yHist, yHistTimeTag, tVec, mu)
+function [] = LinearKF(IC, pert, P0, R, yHist, yHistRef, yHistTimeTag, stationECI, tVec, mu)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
 % pert:         [6 x 1] Initial Perturbation State 
 % P0:           [6 x 6] Initial uncertainty of IC
 % R:            [6 x 6] Assumed constant measurement noise for filter
-% yHist:        [SIZE x SIZE] History of measurements for all stations starting
+% yHist:        [Struct] History of measurements for all stations starting
 %                   at t0+dt
 % yHistTimeTag
 % tVec:         [1 x n] time history of observations
 % mu:           [1 x 1] Scalar of planet gravitational parameter
+% stationECI:   [] History of all station states in ECI 
 
 %%%%%%%%%%%%% OUTPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % pertHist:      [6 x n] History of perturbation state estimate
@@ -25,16 +26,8 @@ Re = Const.OrbConst.EarthRadius;
 
 %--- Integrate ref traj & STM before running filter --- 
 
-%---- PASS THIS INTO FUNC Set Initial Conditions
-r0   = [-3515.49032703351; 8390.71631024339; 4127.62735255368];
-v0   = [-4.35767632217815; -3.35657913876455; 3.1118929278699];
-Phi0 = eye(6,6);
-
 % integrate for the different observation times
 tVec = 0:yHistTimeTag;
-
-% Stack all initial conditions into vector
-IC = [r0; v0; reshape(Phi0, [36,1])];
 
 % Set integrator options
 odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
@@ -48,6 +41,16 @@ refTrajStates = TrajNom(:,1:6);
 % Extract the Integrated STM - STM is by Row!
 phi = TrajNom(:,7:end);
 
+% --- Measurements --- 
+% noisey measurements - these are from sensor
+rangeMeas    = yHist.Range;
+rangeDotMeas = yHist.RangeRate;
+
+observedMeas = [rangeMeas]
+
+% reference measurements - these are perfect No Noise!
+refRange     = yHistRef.Range;
+refRangeRate = yHistRef.RangeRate;
 
 % --- Implement LKF Algorithm 
 % Naming convention
@@ -82,8 +85,8 @@ for i = length(yhist)
     xMinus = STM * xhatPrev; 
     pMinus = STM * pPrev * STM'; 
     
-    % -- Computed Observation
-    Measurements.VisibilityMask(stationPos, scPos, elevAngle, tSpan)
+    % -- Observation Deviation
+    
     
     
     % Set time for next iteration

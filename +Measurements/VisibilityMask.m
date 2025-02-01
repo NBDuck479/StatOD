@@ -18,11 +18,14 @@ for i = 1:length(tSpan)
     
     for j = 1:numStations
         
+        % grab position of single station at time step
+        singleStatPos = stationPos{i,j};
+        
         % Distance between ground station and spacecraft
-        rho = scPos - stationPos;
+        rho = scPos(:,i) - singleStatPos;
         
         % Local Vertical Unit Vector
-        ehat = stationPos / norm(stationPos);
+        ehat = singleStatPos / norm(singleStatPos);
         
         % elevation angle of spacecraft relative to ground station
         theta = asind(dot(rho,ehat) / norm(rho));

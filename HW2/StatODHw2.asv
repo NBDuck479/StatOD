@@ -12,10 +12,6 @@ Range     = MeasStruct.Meas4aHW1.RangeMeas;
 RangeRate = MeasStruct.Meas4aHW1.RangeRateMeas;
 ElevAng   = MeasStruct.Meas4aHW1.ElevAng;
 
-% keep the observations without noise for reference
-yHistRef.Range     = Range;
-yHistRef.RangeRate = RangeRate; 
-
 % add noise to these measurements
 sigmaRange     = 0.001; % km
 sigmaRangeRate = 0.000001; % km/s
@@ -29,7 +25,7 @@ noisyRangeRate = RangeRate + sigmaRangeRate * randn(size(Range));
 
 % measurements put together in struct
 yHist.Range     = noisyRange;
-yHist.RangeRate = noisyRangeRate;
+yHist.Rangerate = noisyRangeRate;
 
 % Create A priori covariance matrix
 varPos = 1^2; 
