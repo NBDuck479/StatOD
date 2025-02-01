@@ -1,0 +1,48 @@
+function [visibilityMask, viewingAngles] = VisibilityMask(stationPos, scPos, elevAngle, tSpan)
+% This computes the visibilty mask for a given ground station via the
+% elevation angle of the spacecraft relative to the ground station.
+%
+% --- Inputs ---
+% stationPos:       {n x 3} cell for each ground station position
+% scPos:            [3 x n] Pos of Single Spacecraft
+% elevAngle:        [1 x 1] Elevation Angle Limit for Ground Station
+% tSpan:            [1 x n] The time to run this calculation
+%
+% Units: Deg, km, km/s
+%
+% Assumption: EVERYTHING INPUT IS IN ECI
+
+[~, numStations] = size(stationPos);
+
+for i = 1:length(tSpan)
+    
+    for j = 1:numStations
+        
+        % Distance between ground station and spacecraft
+        rho = scPos - stationPos;
+        
+        % Local Vertical Unit Vector
+        ehat = stationPos / norm(stationPos);
+        
+        % elevation angle of spacecraft relative to ground station
+        theta = asind(dot(rho,ehat) / norm(rho));
+        
+        % Enforce elevation angle for visibility mask
+        if theta > elevAngle
+            % Spacecraft is high enough above horizon to be visible
+            visibilityMask(i,j) = 1;
+            
+            % Store angles ground could see
+            viewingAngles(i,j) = theta;
+            
+        else
+            % Spacecraft is not high enough to be visible
+            visibilityMask(i,j) = NaN;
+            
+            % no viewing angles
+            viewingAngles(i,j) = NaN;
+            
+        end
+        
+    end
+end

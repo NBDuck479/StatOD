@@ -64,7 +64,7 @@ Re = Const.OrbConst.EarthRadius;
 
 %% ode45 to propagation of reference - 15 orbits
 odeoptions = odeset('RelTol', 1e-12, 'AbsTol', 1e-12);
-[T,Y] = ode45(@Utility.NumericJ2Prop, t, Y0, odeoptions, Const.OrbConst.muEarth, J2, Re);
+[T,Y] = ode45(@Dynamics.NumericJ2Prop, t, Y0, odeoptions, Const.OrbConst.muEarth, J2, Re);
 
 % reference trajectory
 refPos = Y(:,1:3);
@@ -250,7 +250,7 @@ odeoptions = odeset('RelTol', 1e-12, 'AbsTol', 1e-12);
 r = [-3521.73568944413, 8376.51345222035, 4151.07556206157];
 v = [-4.35773976889406, -3.36804988677892, 3.09937317355002];
 
-YpartA(9952, :)' - [r'; v'];
+stateDiff = YpartA(9951, :)' - [r'; v']
 
 %% Problem 2 part b - Implement STM Computation 
 
@@ -335,21 +335,31 @@ statState = [Rs; Vs];
 %% Problem 4 - Simulating Measurements
 
 % staion lat and long
-stat1.lat = -35.398333; 
-stat1.long = 148.981944;
+stations.stat1.lat = -35.398333;
+stations.stat1.long = 148.981944;
 
-stat2.lat = 40.427222;
-stat2.long = 355.749444;
+stations.stat2.lat = 40.427222;
+stations.stat2.long = 355.749444;
 
-stat3.lat = 35.247164;
-stat3.long = 243.205; 
+stations.stat3.lat = 35.247164;
+stations.stat3.long = 243.205;
 
 % earth rotation
 rotEarth.Deg = 360 / (24*60*60); % deg/sec 
 rotEarth.rad = (2*pi) / (24*60*60);
 
 % initial rotation of ECEF wrt ECI
-Theta0 = 122; 
+theta0 = 122; 
+
+Re = Const.OrbConst.EarthRadius;
+
+
+[stationECI] = Measurements.StationStateECI(stations, theta0, Re, t)
+
+stationECIcell = stationECI';
+
+stationECIcell{1:4}(1)
+
 
 % convert groundstations to cartesian 
 [stat1.ecef.x, stat1.ecef.y, stat1.ecef.z] = sph2cart(deg2rad(stat1.long), deg2rad(stat1.lat), 6378);
@@ -393,7 +403,7 @@ Rz = @(Theta) [cosd(Theta) -sind(Theta) 0; sind(Theta) cosd(Theta) 0; 0 0 1];
 % theta of Earth rotation - to be updated each step!
 thetaCurrent = Theta0;
 
-% reference transmit frequency for Doppler
+%% reference transmit frequency for Doppler
 refTransFreq = 8.44*10^9; % Hz
 
 % speed of light 
@@ -406,77 +416,91 @@ for i = 1:length(t)
     thetaCurrent = t(i)*rotEarth.Deg + Theta0; 
     
     % reference trajecotry is satellite position and velocity
-    satPos = refPos(i,:);
+ %   satPos = refPos'(i,:);
     satVel = refVel(i,:);
     
-    spacecraftState(:,i) = [satPos'; satVel'];
+  %  spacecraftState(:,i) = [satPos'; satVel'];
     
     for j = 1:3
     % put the station coordinates into ECI
-    statECI(:,j) = Rz(-thetaCurrent)*statAllecef(:,j);
+    statECI{i,j} = Rz(-thetaCurrent)*statAllecef(:,j);
     
     % state of this station
-    stationState(:,j) = [statECI(:,j); stationVeloVec(1:3,stat)];
+ %   stationState(:,j) = [statECI(:,j); stationVeloVec(1:3,stat)];
     
-    % get LOS for station to satellite
-    rho(:,j) = spacecraftState(1:3,i) - statECI(:,j);
+    end
+end
     
-    % Dot product Station position with LOS for satllite
-    eleAngStat(j) = acosd(dot(statECI(:,j), rho(:,j)) / (norm(statECI(:,j))*norm(rho(:,j))));
+% this gives visibility mask 
+    [visibilityMask, viewingAngles] = Measurements.VisibilityMask(statECI, refPos', 10, t);
     
-    % save the value of the dot produsct for each station
-    eleDotStat(j) = dot(statECI(:,j), rho(:,j));
-   
+    for i = 1:length(t)
+    % Get the linearized measurement H matrix going good
+    Measurements.HtildeSC(scState, statState)
     
-    % --- Check if the station is able to make a measurement
-    % The check for observability is if dot > 0 and eleAng > 100 
     
-        % for each station 
-        if eleAngStat(j) > 10 && eleDotStat(j) > 0
-            % if the elevation is more than 10 degree elevation. 
-            % If dot product is positive then measuring the correct angle!
-            
-            % mask for all the visibility
-            visibiltyMask(j,i) = 1; % measurement made!
-            
-            % Determine what the range and range rate is for each
-            %rangeMeasurement(j,i)    = norm(LOS(:,j));
-            [HtildeSC] = Utility.HtildeSC(spacecraftState(:,i), stationState(:,j));
-            
-            % Measurement!
-            Measurement = HtildeSC * spacecraftState(:,i);
-            
-            % save off rho and rhoDot measurement
-            rhoMeas(i,j) = Measurement(1);
-            rhoDotMeas(i,j) = Measurement(2);
-                        
-            % save the elevation angle for each measurement
-            savedEleAng(j,i) = eleAngStat(j);
-            
-            % Calculate frequecny shift
-            freqShift(j,i) = -2*rhoDotMeas(i,j)/c * refTransFreq;
-            
-            RU(j,i) = (221/749)*(rhoMeas(i,j)/c) * refTransFreq;
-        
-        else
-            % Satellite not seen    
-            visibiltyMask(j,i) = NaN;
-            
-            % No rho and rhoDot measurement
-            rhoMeas(i,j) = NaN;
-            rhoDotMeas(i,j) = NaN;
-            
-            % save the elevation angle for each measurement
-            savedEleAng(j,i) = NaN;
-            
-            % frequecny shift for doppler
-            freqShift(j,i) = NaN; 
-            
-            RU(j,i) = NaN; 
-        end
+    
+    
     end
     
-end
+    
+%     % get LOS for station to satellite
+%     rho(:,j) = spacecraftState(1:3,i) - statECI(:,j);
+%     
+%     % Dot product Station position with LOS for satllite
+%     eleAngStat(j) = acosd(dot(statECI(:,j), rho(:,j)) / (norm(statECI(:,j))*norm(rho(:,j))));
+%     
+%     % save the value of the dot produsct for each station
+%     eleDotStat(j) = dot(statECI(:,j), rho(:,j));
+%    
+%     
+%     % --- Check if the station is able to make a measurement
+%     % The check for observability is if dot > 0 and eleAng > 100 
+%     
+%         % for each station 
+%         if eleAngStat(j) > 10 && eleDotStat(j) > 0
+%             % if the elevation is more than 10 degree elevation. 
+%             % If dot product is positive then measuring the correct angle!
+%             
+%             % mask for all the visibility
+%             visibiltyMask(j,i) = 1; % measurement made!
+%             
+%             % Determine what the range and range rate is for each
+%             %rangeMeasurement(j,i)    = norm(LOS(:,j));
+%             [HtildeSC] = Utility.HtildeSC(spacecraftState(:,i), stationState(:,j));
+%             
+%             % Measurement!
+%             Measurement = HtildeSC * spacecraftState(:,i);
+%             
+%             % save off rho and rhoDot measurement
+%             rhoMeas(i,j) = Measurement(1);
+%             rhoDotMeas(i,j) = Measurement(2);
+%                         
+%             % save the elevation angle for each measurement
+%             savedEleAng(j,i) = eleAngStat(j);
+%             
+%             % Calculate frequecny shift
+%             freqShift(j,i) = -2*rhoDotMeas(i,j)/c * refTransFreq;
+%             
+%             RU(j,i) = (221/749)*(rhoMeas(i,j)/c) * refTransFreq;
+%         
+%         else
+%             % Satellite not seen    
+%             visibiltyMask(j,i) = NaN;
+%             
+%             % No rho and rhoDot measurement
+%             rhoMeas(i,j) = NaN;
+%             rhoDotMeas(i,j) = NaN;
+%             
+%             % save the elevation angle for each measurement
+%             savedEleAng(j,i) = NaN;
+%             
+%             % frequecny shift for doppler
+%             freqShift(j,i) = NaN; 
+%             
+%             RU(j,i) = NaN; 
+%         end
+
  
  %% Plots for Range and Range Rate
  % plot for each station range measurement
