@@ -1,8 +1,8 @@
-function [] = LinearKF(IC, pert, P0, R, yHist, yHistRef, yHistTimeTag, stationECI, tVec, mu)
+function [xhist, measResHist] = LinearKF(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
-% pert:         [6 x 1] Initial Perturbation State 
+% pert:         [6 x 1] Initial Perturbation State
 % P0:           [6 x 6] Initial uncertainty of IC
 % R:            [6 x 6] Assumed constant measurement noise for filter
 % yHist:        [Struct] History of measurements for all stations starting
@@ -10,7 +10,7 @@ function [] = LinearKF(IC, pert, P0, R, yHist, yHistRef, yHistTimeTag, stationEC
 % yHistTimeTag
 % tVec:         [1 x n] time history of observations
 % mu:           [1 x 1] Scalar of planet gravitational parameter
-% stationECI:   [] History of all station states in ECI 
+% stationECI:   [] History of all station states in ECI
 
 %%%%%%%%%%%%% OUTPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % pertHist:      [6 x n] History of perturbation state estimate
@@ -19,20 +19,13 @@ function [] = LinearKF(IC, pert, P0, R, yHist, yHistRef, yHistTimeTag, stationEC
 % covPriorHist:  [] History of pre-measurement state uncertainty
 % measResidHist: [] History of measurement residuals/innovations
 
-% Set Constants
-mu = Const.OrbConst.muEarth;
-J2 = Const.OrbConst.J2; 
-Re = Const.OrbConst.EarthRadius;
+%--- Integrate ref traj & STM before running filter ---
 
-%--- Integrate ref traj & STM before running filter --- 
-
-% integrate for the different observation times
-tVec = 0:yHistTimeTag;
 
 % Set integrator options
 odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
 
-% Integrate Trajectory 
+% Integrate Trajectory
 [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, tVec, IC, odeOptions, mu, J2, Re);
 
 % Extract the reference trajectory states
@@ -41,7 +34,7 @@ refTrajStates = TrajNom(:,1:6);
 % Extract the Integrated STM - STM is by Row!
 phi = TrajNom(:,7:end);
 
-% --- Measurements --- 
+% --- Measurements ---
 % noisey measurements - these are from sensor
 rangeMeas    = yHist.Range;
 rangeDotMeas = yHist.RangeRate;
@@ -54,47 +47,81 @@ refRange     = yHistRef.Range;
 refRangeRate = yHistRef.RangeRate;
 
 % Computed Measurements (reference)
-computedMeas = [refRange; refRangeRate];
+computedMeas = [refRange, refRangeRate];
 
-% --- Implement LKF Algorithm 
+% --- Implement LKF Algorithm ---
 % Naming convention
 % Prev: Value from previous time step
 % Minus: A Priori Value
 % Plus: A Posteriori Value
-% 
+%
 % set filter initial conditions
 xhatPrev = pert;
 pPrev = P0;
 timePrev = 0;
 
 % Set filter to loop over number of observations
-for i = length(yhist)
-
-    % Get the time tag for this Observation
-    time = yHistTimeTag(i) - timePrev;
+for i = 1:length(tVec)
     
     % Setup phi for run
     if i == 1
-        % For first go phi is IC 
+        % For first go phi is IC
         STM = reshape(phi(i,:), [6,6]);
         
     else
-        % After first go phi multiplies itself 
+        % After first go phi multiplies itself
         STM = reshape(phi(i,:), [6,6])*reshape(phi(i-1, :), [6,6]);
         
     end
     
     
-    % --- Time Update Step 
-    xMinus = STM * xhatPrev; 
-    pMinus = STM * pPrev * STM'; 
+    % --- Time Update Step
+    xMinus = STM * xhatPrev;
+    pMinus = STM * pPrev * STM';
     
     % -- Observation Deviation
-    measResidual = observedMeas(:,i) - computedMeas(:,i);
+    % [range from stations] [range dot from stations]
+    OC = observedMeas(i,:) - computedMeas(i,:);
+    
+    % range first row; range rate second
+    measDelta = [OC(1:3); OC(4:6)];
     
     % --- Observation State Matrix
+    % Determine which statoin made the ob and do calculations just for that
+    stationOb = isnan(visibilityMask(i,:));
     
+    % index where it is NOT Nan is the station number that made the ob
+    statNumOb = find(stationOb == 0);
     
-    % Set time for next iteration
-    timePrev = time; 
+    % put error if mulipltle observation sat the same time!
+    assert(length(statNumOb) == 1 || isempty(statNumOb), 'Multiple Station Obs at same time!!!')
+    
+    if ~isempty(statNumOb)
+        % each column is station
+        Htilde{i} = Measurements.HtildeSC(refTrajStates(i,:)', stationECI{i,statNumOb});
+        
+        % --- Kalman Gain
+        Kk = pMinus * Htilde{i}' * inv(Htilde{i} * pMinus * Htilde{i}' + R);
+        
+        % -- Measurement Update
+        measRes = (measDelta(:,statNumOb) - Htilde{i}*xMinus);
+        xhatPlus = xMinus + Kk * measRes;
+        Pplus = (eye(6,6) - Kk*Htilde{i}) * pPrev * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+    else
+        % no station observation - simply propagating the state w/o meas
+        xhatPlus = xMinus;
+        Pplus    = pMinus;
+        
+    end
+    
+    % save off histories
+    xhist(:, i) = xhatPlus;
+    measResHist(:,i) = measRes;
+    
+    % update variables for next go around
+    xhatPrev = xhatPlus;
+    pPrev    = Pplus;
+    
+end
+
 end
