@@ -34,20 +34,8 @@ refTrajStates = TrajNom(:,1:6);
 % Extract the Integrated STM - STM is by Row!
 phi = TrajNom(:,7:end);
 
-% --- Measurements ---
-% noisey measurements - these are from sensor
-rangeMeas    = yHist.Range;
-rangeDotMeas = yHist.RangeRate;
-
-% Observed measurements (from sensor)
-observedMeas = [rangeMeas, rangeDotMeas];
-
-% reference measurements - these are perfect No Noise!
-refRange     = yHistRef.Range;
-refRangeRate = yHistRef.RangeRate;
-
-% Computed Measurements (reference)
-computedMeas = [refRange, refRangeRate];
+% Function to help sort measurements
+[computedMeas, observedMeas] = Measurements.FilterMeasLoadIn(yHist);
 
 % --- Implement LKF Algorithm ---
 % Naming convention
@@ -79,22 +67,9 @@ for i = 1:length(tVec)
     xMinus = STM * xhatPrev;
     pMinus = STM * pPrev * STM';
     
-    % -- Observation Deviation
-    % [range from stations] [range dot from stations]
-    OC = observedMeas(i,:) - computedMeas(i,:);
-    
-    % range first row; range rate second
-    measDelta = [OC(1:3); OC(4:6)];
-    
-    % --- Observation State Matrix
-    % Determine which statoin made the ob and do calculations just for that
-    stationOb = isnan(visibilityMask(i,:));
-    
-    % index where it is NOT Nan is the station number that made the ob
-    statNumOb = find(stationOb == 0);
-    
-    % put error if mulipltle observation sat the same time!
-    assert(length(statNumOb) == 1 || isempty(statNumOb), 'Multiple Station Obs at same time!!!')
+    % function to determine which filter observed and calc measurement
+    % delta
+    [statNumOb, measDelta] = Measurements.StationObs(observedMeas, computedMeas, visibilityMask, i);
     
     if ~isempty(statNumOb)
         % each column is station
