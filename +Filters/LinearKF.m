@@ -20,8 +20,8 @@ function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist
 % measResidHist: [] History of measurement residuals/innovations
 
 
-% Function to help sort measurements
-[computedMeas, observedMeas] = Measurements.FilterMeasLoadIn(yHist, yHistRef);
+% Function to help sort measurements - these are noisy measurements of ref
+[observedMeas] = Measurements.FilterMeasLoadIn(yHist);
 
 % --- Implement LKF Algorithm ---
 % Naming convention
@@ -46,56 +46,52 @@ for i = 1:length(tVec)-1
     [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i):tVec(i+1)], refState, odeOptions, mu, J2, Re);
     
     % Extract the reference trajectory states
-    refTrajStates = TrajNom(1:end,1:6);
+    refTrajStates = TrajNom(end,1:6);
     
-    % Extract the Integrated STM - STM is by Row!
-    phi = TrajNom(:,7:end);
+    % Extract the Integrated STM (maps previous to current time)
+    phi = TrajNom(end,7:end);
     
+    % reshapre the STM
+    STM = reshape(phi, [6,6]);
     
-    
-    
-    
-    
-    
-    if i == 1
-        % just grab STM from propagated ref traj
-        STM = reshape(phi(i,:), [6,6]);
-    else
-        % Want phi(ti, ti-1) on each iteration
-        
-        % invert previous STM
-        prevSTMinv = inv(reshape(phi(i, :), [6,6]));
-        
-        % new STM maps from prev time step to current
-        STM = reshape(phi(i+1,:), [6,6]) * prevSTMinv;
-    end
-    
-    % --- Time Update Step
-    xMinus = STM * xhatPrev;
+    % --- Time Update Step USING INITIAL PERT!
+    xMinus = STM * xhatPrev; 
     pMinus = STM * pPrev * STM';
     
-    % function to determine which filter observed and calc measurement
-    % delta
-    [statNumOb, measDelta] = Measurements.StationObs(observedMeas, computedMeas, visibilityMask, i);
+    % function to determine which station observed the spacecraft
+    [statNumOb] = Measurements.StationObs(visibilityMask, i);
     
     if ~isempty(statNumOb)
         % each column is station
-        Htilde{i} = Measurements.HtildeSC(refTrajStates(i,:)', stationECI{i,statNumOb});
+        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+        
+        % Computed measurement for filter estimated state
+     %   Xcomp = refTrajStates' + xMinus;
+        
+        % calcualte the computed measurements
+        refRangeMeas     = yHistRef.Range(i,statNumOb);
+        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+        
+        compMeas = [refRangeMeas; refRangeRateMeas];        % [compMeas] = Measurements.ComputedMeas(yHistRef, Htilde{i}, xMinus, statNumOb, i);
+        
+        % pre-fit measurement residuals
+        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
         
         % --- Kalman Gain
         Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
         
         % -- Measurement Update
-        measRes = measDelta(:,statNumOb) - Htilde{i}*xMinus;
+        measRes = measDelta - Htilde{i}*xMinus;
         xhatPlus = xMinus + Kk * measRes;
         Pplus = (eye(6,6) - Kk*Htilde{i}*STM) * pPrev * (eye(6,6) - Kk*Htilde{i}*STM)' + Kk*R*Kk';
-        % Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
+      %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-        % assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
+        measDeltaHist{i} = measDelta;
     else
         % no station observation - simply propagating the state w/o meas
         xhatPlus = xMinus;
@@ -104,6 +100,7 @@ for i = 1:length(tVec)-1
         % debugging saving this
         estimatedDeviationOb{i} = [NaN; NaN];
         measResHist(:,i) = [NaN; NaN];
+        measDeltaHist{i} = [NaN; NaN];
         
     end
     
@@ -112,7 +109,6 @@ for i = 1:length(tVec)-1
     measResHist(:,i) = measRes;
     covMins{i} = pMinus;
     covPlus{i} = Pplus;
-    measDeltaHist{i} = measDelta;
     if isempty(statNumOb)
         statNumOb = 0;
     end
@@ -121,6 +117,7 @@ for i = 1:length(tVec)-1
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
+    refState = [refTrajStates'; phi']; 
     
 end
 
