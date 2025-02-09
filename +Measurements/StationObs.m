@@ -1,13 +1,6 @@
-function [statNumOb, measDelta] = StationObs(observedMeas, computedMeas, visibilityMask, i)
-% Made a function to paste into each filter
+function [statNumOb] = StationObs(visibilityMask, i)
+% Determines which station made the observation
 
-% --- Observation Deviation --- 
-    % [range from stations] [range dot from stations]
-    OC = observedMeas(i,:) - computedMeas(i,:);
-    
-    % range first row; range rate second
-    measDelta = [OC(1:3); OC(4:6)];
-    
     % --- Observation State Matrix
     % Determine which statoin made the ob and do calculations just for that
     stationOb = isnan(visibilityMask(i,:));

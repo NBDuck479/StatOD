@@ -1,0 +1,333 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML was auto-generated from MATLAB code.
+To make changes, update the MATLAB code and republish this document.
+      --><title>LinearKF</title><meta name="generator" content="MATLAB 9.9"><link rel="schema.DC" href="http://purl.org/dc/elements/1.1/"><meta name="DC.date" content="2025-02-07"><meta name="DC.source" content="LinearKF.m"><style type="text/css">
+html,body,div,span,applet,object,iframe,h1,h2,h3,h4,h5,h6,p,blockquote,pre,a,abbr,acronym,address,big,cite,code,del,dfn,em,font,img,ins,kbd,q,s,samp,small,strike,strong,tt,var,b,u,i,center,dl,dt,dd,ol,ul,li,fieldset,form,label,legend,table,caption,tbody,tfoot,thead,tr,th,td{margin:0;padding:0;border:0;outline:0;font-size:100%;vertical-align:baseline;background:transparent}body{line-height:1}ol,ul{list-style:none}blockquote,q{quotes:none}blockquote:before,blockquote:after,q:before,q:after{content:'';content:none}:focus{outine:0}ins{text-decoration:none}del{text-decoration:line-through}table{border-collapse:collapse;border-spacing:0}
+
+html { min-height:100%; margin-bottom:1px; }
+html body { height:100%; margin:0px; font-family:Arial, Helvetica, sans-serif; font-size:10px; color:#000; line-height:140%; background:#fff none; overflow-y:scroll; }
+html body td { vertical-align:top; text-align:left; }
+
+h1 { padding:0px; margin:0px 0px 25px; font-family:Arial, Helvetica, sans-serif; font-size:1.5em; color:#d55000; line-height:100%; font-weight:normal; }
+h2 { padding:0px; margin:0px 0px 8px; font-family:Arial, Helvetica, sans-serif; font-size:1.2em; color:#000; font-weight:bold; line-height:140%; border-bottom:1px solid #d6d4d4; display:block; }
+h3 { padding:0px; margin:0px 0px 5px; font-family:Arial, Helvetica, sans-serif; font-size:1.1em; color:#000; font-weight:bold; line-height:140%; }
+
+a { color:#005fce; text-decoration:none; }
+a:hover { color:#005fce; text-decoration:underline; }
+a:visited { color:#004aa0; text-decoration:none; }
+
+p { padding:0px; margin:0px 0px 20px; }
+img { padding:0px; margin:0px 0px 20px; border:none; }
+p img, pre img, tt img, li img, h1 img, h2 img { margin-bottom:0px; }
+
+ul { padding:0px; margin:0px 0px 20px 23px; list-style:square; }
+ul li { padding:0px; margin:0px 0px 7px 0px; }
+ul li ul { padding:5px 0px 0px; margin:0px 0px 7px 23px; }
+ul li ol li { list-style:decimal; }
+ol { padding:0px; margin:0px 0px 20px 0px; list-style:decimal; }
+ol li { padding:0px; margin:0px 0px 7px 23px; list-style-type:decimal; }
+ol li ol { padding:5px 0px 0px; margin:0px 0px 7px 0px; }
+ol li ol li { list-style-type:lower-alpha; }
+ol li ul { padding-top:7px; }
+ol li ul li { list-style:square; }
+
+.content { font-size:1.2em; line-height:140%; padding: 20px; }
+
+pre, code { font-size:12px; }
+tt { font-size: 1.2em; }
+pre { margin:0px 0px 20px; }
+pre.codeinput { padding:10px; border:1px solid #d3d3d3; background:#f7f7f7; }
+pre.codeoutput { padding:10px 11px; margin:0px 0px 20px; color:#4c4c4c; }
+pre.error { color:red; }
+
+@media print { pre.codeinput, pre.codeoutput { word-wrap:break-word; width:100%; } }
+
+span.keyword { color:#0000FF }
+span.comment { color:#228B22 }
+span.string { color:#A020F0 }
+span.untermstring { color:#B20000 }
+span.syscmd { color:#B28C00 }
+span.typesection { color:#A0522D }
+
+.footer { width:auto; padding:10px 0px; margin:25px 0px 0px; border-top:1px dotted #878787; font-size:0.8em; line-height:140%; font-style:italic; color:#878787; text-align:left; float:none; }
+.footer p { margin:0px; }
+.footer a { color:#878787; }
+.footer a:hover { color:#878787; text-decoration:underline; }
+.footer a:visited { color:#878787; }
+
+table th { padding:7px 5px; text-align:left; vertical-align:middle; border: 1px solid #d6d4d4; font-weight:bold; }
+table td { padding:7px 5px; text-align:left; vertical-align:top; border:1px solid #d6d4d4; }
+
+
+
+
+
+  </style></head><body><div class="content"><pre class="codeinput"><span class="keyword">function</span> [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+
+<span class="comment">%%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%</span>
+<span class="comment">% IC:           [6 x 1] Initial Total State condition that we'll propagate with</span>
+<span class="comment">% pert:         [6 x 1] Initial Perturbation State</span>
+<span class="comment">% P0:           [6 x 6] Initial uncertainty of IC</span>
+<span class="comment">% R:            [6 x 6] Assumed constant measurement noise for filter</span>
+<span class="comment">% yHist:        [Struct] History of measurements for all stations starting</span>
+<span class="comment">%                   at t0+dt</span>
+<span class="comment">% yHistTimeTag</span>
+<span class="comment">% tVec:         [1 x n] time history of observations</span>
+<span class="comment">% mu:           [1 x 1] Scalar of planet gravitational parameter</span>
+<span class="comment">% stationECI:   [] History of all station states in ECI</span>
+
+<span class="comment">%%%%%%%%%%%%% OUTPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%</span>
+<span class="comment">% pertHist:      [6 x n] History of perturbation state estimate</span>
+<span class="comment">% covPostHist:   [] History of final, posterior state</span>
+<span class="comment">%                uncertainty</span>
+<span class="comment">% covPriorHist:  [] History of pre-measurement state uncertainty</span>
+<span class="comment">% measResidHist: [] History of measurement residuals/innovations</span>
+
+
+<span class="comment">% Function to help sort measurements - these are noisy measurements of ref</span>
+[observedMeas] = Measurements.FilterMeasLoadIn(yHist);
+
+<span class="comment">% --- Implement LKF Algorithm ---</span>
+<span class="comment">% Naming convention</span>
+<span class="comment">% Prev: Value from previous time step</span>
+<span class="comment">% Minus: A Priori Value</span>
+<span class="comment">% Plus: A Posteriori Value</span>
+<span class="comment">%</span>
+<span class="comment">% set filter initial conditions</span>
+xhatPrev = pert;
+pPrev = P0;
+refState = IC;
+timePrev = 0;
+
+<span class="comment">% Set filter to loop over number of observations</span>
+<span class="keyword">for</span> i = 1:length(tVec)-1
+
+    <span class="comment">%--- Integrate ref traj &amp; STM between each time step---</span>
+    <span class="comment">% Set integrator options</span>
+    odeOptions = odeset(<span class="string">'AbsTol'</span>,1e-12,<span class="string">'RelTol'</span>, 1e-12);
+
+    <span class="comment">% Integrate Trajectory</span>
+    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i):tVec(i+1)], refState, odeOptions, mu, J2, Re);
+
+    <span class="comment">% Extract the reference trajectory states</span>
+    refTrajStates = TrajNom(end,1:6);
+
+    <span class="comment">% Extract the Integrated STM (maps previous to current time)</span>
+    phi = TrajNom(end,7:end);
+
+    <span class="comment">% reshapre the STM</span>
+    STM = reshape(phi, [6,6]);
+
+    <span class="comment">% --- Time Update Step USING INITIAL PERT!</span>
+    xMinus = STM * pert;
+    pMinus = STM * pPrev * STM';
+
+    <span class="comment">% function to determine which station observed the spacecraft</span>
+    [statNumOb] = Measurements.StationObs(visibilityMask, i);
+    <span class="keyword">if</span> i == 155
+        yo = 1;
+    <span class="keyword">else</span>
+    <span class="keyword">end</span>
+
+    <span class="keyword">if</span> ~isempty(statNumOb)
+        <span class="comment">% each column is station</span>
+        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+
+        <span class="comment">% Computed measurement for filter estimated state</span>
+     <span class="comment">%   Xcomp = refTrajStates' + xMinus;</span>
+
+        <span class="comment">% calcualte the computed measurements</span>
+        refRangeMeas     = yHistRef.Range(i,statNumOb);
+        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+
+        compMeas = [refRangeMeas; refRangeRateMeas];        <span class="comment">% [compMeas] = Measurements.ComputedMeas(yHistRef, Htilde{i}, xMinus, statNumOb, i);</span>
+
+        <span class="comment">% pre-fit measurement residuals</span>
+        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
+
+        <span class="comment">% --- Kalman Gain</span>
+        Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
+
+        <span class="comment">% -- Measurement Update</span>
+        measRes = measDelta - Htilde{i}*xMinus;
+        xhatPlus = xMinus + Kk * measRes;
+        Pplus = (eye(6,6) - Kk*Htilde{i}*STM) * pPrev * (eye(6,6) - Kk*Htilde{i}*STM)' + Kk*R*Kk';
+      <span class="comment">%  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;</span>
+
+        <span class="comment">% CHECKING P IS GETTING SMALLER</span>
+    <span class="comment">%    assert(trace(Pplus) &lt; trace(pMinus), 'Trace of P is not getting smaller');</span>
+
+        <span class="comment">% debugging saving this</span>
+        estimatedDeviationOb{i} = Htilde{i}*xMinus;
+        measDeltaHist{i} = measDelta;
+    <span class="keyword">else</span>
+        <span class="comment">% no station observation - simply propagating the state w/o meas</span>
+        xhatPlus = xMinus;
+        Pplus    = pMinus;
+
+        <span class="comment">% debugging saving this</span>
+        estimatedDeviationOb{i} = [NaN; NaN];
+        measResHist(:,i) = [NaN; NaN];
+        measDeltaHist{i} = [NaN; NaN];
+
+    <span class="keyword">end</span>
+
+    <span class="comment">% save off histories</span>
+    xhist(:, i) = xhatPlus;
+    measResHist(:,i) = measRes;
+    covMins{i} = pMinus;
+    covPlus{i} = Pplus;
+    <span class="keyword">if</span> isempty(statNumOb)
+        statNumOb = 0;
+    <span class="keyword">end</span>
+    statNumObHist(i) = statNumOb;
+
+    <span class="comment">% update variables for next go around</span>
+    xhatPrev = xhatPlus;
+    pPrev    = Pplus;
+    refState = [refTrajStates'; phi'];
+
+<span class="keyword">end</span>
+
+<span class="keyword">end</span>
+</pre><pre class="codeoutput error">Not enough input arguments.
+
+Error in Filters.LinearKF (line 24)
+[observedMeas] = Measurements.FilterMeasLoadIn(yHist);
+</pre><p class="footer"><br><a href="https://www.mathworks.com/products/matlab/">Published with MATLAB&reg; R2020b</a><br></p></div><!--
+##### SOURCE BEGIN #####
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+
+%%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% IC:           [6 x 1] Initial Total State condition that we'll propagate with
+% pert:         [6 x 1] Initial Perturbation State
+% P0:           [6 x 6] Initial uncertainty of IC
+% R:            [6 x 6] Assumed constant measurement noise for filter
+% yHist:        [Struct] History of measurements for all stations starting
+%                   at t0+dt
+% yHistTimeTag
+% tVec:         [1 x n] time history of observations
+% mu:           [1 x 1] Scalar of planet gravitational parameter
+% stationECI:   [] History of all station states in ECI
+
+%%%%%%%%%%%%% OUTPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% pertHist:      [6 x n] History of perturbation state estimate
+% covPostHist:   [] History of final, posterior state
+%                uncertainty
+% covPriorHist:  [] History of pre-measurement state uncertainty
+% measResidHist: [] History of measurement residuals/innovations
+
+
+% Function to help sort measurements - these are noisy measurements of ref
+[observedMeas] = Measurements.FilterMeasLoadIn(yHist);
+
+% REPLACE_WITH_DASH_DASH- Implement LKF Algorithm REPLACE_WITH_DASH_DASH-
+% Naming convention
+% Prev: Value from previous time step
+% Minus: A Priori Value
+% Plus: A Posteriori Value
+%
+% set filter initial conditions
+xhatPrev = pert;
+pPrev = P0;
+refState = IC;
+timePrev = 0;
+
+% Set filter to loop over number of observations
+for i = 1:length(tVec)-1
+        
+    %REPLACE_WITH_DASH_DASH- Integrate ref traj & STM between each time stepREPLACE_WITH_DASH_DASH-
+    % Set integrator options
+    odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+    
+    % Integrate Trajectory
+    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i):tVec(i+1)], refState, odeOptions, mu, J2, Re);
+    
+    % Extract the reference trajectory states
+    refTrajStates = TrajNom(end,1:6);
+    
+    % Extract the Integrated STM (maps previous to current time)
+    phi = TrajNom(end,7:end);
+    
+    % reshapre the STM
+    STM = reshape(phi, [6,6]);
+    
+    % REPLACE_WITH_DASH_DASH- Time Update Step USING INITIAL PERT!
+    xMinus = STM * pert; 
+    pMinus = STM * pPrev * STM';
+    
+    % function to determine which station observed the spacecraft
+    [statNumOb] = Measurements.StationObs(visibilityMask, i);
+    if i == 155
+        yo = 1; 
+    else
+    end
+    
+    if ~isempty(statNumOb)
+        % each column is station
+        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+        
+        % Computed measurement for filter estimated state
+     %   Xcomp = refTrajStates' + xMinus;
+        
+        % calcualte the computed measurements
+        refRangeMeas     = yHistRef.Range(i,statNumOb);
+        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+        
+        compMeas = [refRangeMeas; refRangeRateMeas];        % [compMeas] = Measurements.ComputedMeas(yHistRef, Htilde{i}, xMinus, statNumOb, i);
+        
+        % pre-fit measurement residuals
+        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
+        
+        % REPLACE_WITH_DASH_DASH- Kalman Gain
+        Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
+        
+        % REPLACE_WITH_DASH_DASH Measurement Update
+        measRes = measDelta - Htilde{i}*xMinus;
+        xhatPlus = xMinus + Kk * measRes;
+        Pplus = (eye(6,6) - Kk*Htilde{i}*STM) * pPrev * (eye(6,6) - Kk*Htilde{i}*STM)' + Kk*R*Kk';
+      %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
+        
+        % CHECKING P IS GETTING SMALLER
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+        
+        % debugging saving this
+        estimatedDeviationOb{i} = Htilde{i}*xMinus;
+        measDeltaHist{i} = measDelta;
+    else
+        % no station observation - simply propagating the state w/o meas
+        xhatPlus = xMinus;
+        Pplus    = pMinus;
+        
+        % debugging saving this
+        estimatedDeviationOb{i} = [NaN; NaN];
+        measResHist(:,i) = [NaN; NaN];
+        measDeltaHist{i} = [NaN; NaN];
+        
+    end
+    
+    % save off histories
+    xhist(:, i) = xhatPlus;
+    measResHist(:,i) = measRes;
+    covMins{i} = pMinus;
+    covPlus{i} = Pplus;
+    if isempty(statNumOb)
+        statNumOb = 0;
+    end
+    statNumObHist(i) = statNumOb;
+    
+    % update variables for next go around
+    xhatPrev = xhatPlus;
+    pPrev    = Pplus;
+    refState = [refTrajStates'; phi']; 
+    
+end
+
+end
+##### SOURCE END #####
+--></body></html>

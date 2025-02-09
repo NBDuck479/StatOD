@@ -43,8 +43,7 @@ for i = 1:length(tVec)-1
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i)
-        :tVec(i+1)], refState, odeOptions, mu, J2, Re);
+    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i):tVec(i+1)], refState, odeOptions, mu, J2, Re);
     
     % Extract the reference trajectory states
     refTrajStates = TrajNom(end,1:6);
