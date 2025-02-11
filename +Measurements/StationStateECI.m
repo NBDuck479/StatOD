@@ -58,9 +58,9 @@ for t = 1:length(tSpan)
         thetaCurrent = tSpan(t) * earthRotDeg + theta0;
         
         % Compute the station's ECI coordinates (apply rotation to ECEF)
-        statPosECI = Rz(-thetaCurrent) * stationPosECEF;
+        statPosECI = Rz(thetaCurrent) * stationPosECEF;
         
-        statVelECi = Rz(-thetaCurrent) * stationVelECEF;
+        statVelECi = Rz(thetaCurrent) * stationVelECEF;
         
         stationECI{i, t} = [statPosECI; statVelECi];
          
