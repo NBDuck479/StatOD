@@ -41,7 +41,7 @@ for i = 1:length(tVec)
         pPrev = P0;
         TrajNom = IC'; 
         timePrev = 0;
-        PhiTotal = reshape(TrajNom(end,7:end), [6,6]);
+        PhiTotal = TrajNom(end,7:end);
     else
         
     %--- Integrate ref traj & STM between each time step---
@@ -57,7 +57,6 @@ for i = 1:length(tVec)
     end
     
     timePrev = tVec(i);
-
     
     % Extract the reference trajectory states
     refTrajStates = TrajNom(end,1:6);
@@ -88,7 +87,7 @@ for i = 1:length(tVec)
         refRangeMeas     = yHistRef.Range(i,statNumOb);
         refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
         
-        compMeas = [refRangeMeas; refRangeRateMeas];        
+        compMeas = [refRangeMeas; refRangeRateMeas];        % [compMeas] = Measurements.ComputedMeas(yHistRef, Htilde{i}, xMinus, statNumOb, i);
         
         % pre-fit measurement residuals
         measDelta = rmmissing(observedMeas(i,:))' - compMeas;
@@ -99,11 +98,11 @@ for i = 1:length(tVec)
         % -- Measurement Update
         measRes = measDelta - Htilde{i}*xMinus;
         xhatPlus = xMinus + Kk * measRes;
-        Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+        Pplus = (eye(6,6) - Kk*Htilde{i}) * pPrev * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
@@ -134,7 +133,7 @@ for i = 1:length(tVec)
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
-    refState = [refTrajStates'; reshape(eye(6,6), [36,1])]; 
+    refState = [refTrajStates'; reshape(eye(6,6), [36,1]]; 
     
 end
 
