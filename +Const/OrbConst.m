@@ -6,10 +6,7 @@ classdef OrbConst
         muSun       = 1.32712428*10^11; 
         EarthRadius = 6378.13; %km
         J2          = 0.00108248; 
-        J3          = -0.0000025323; 
+        J3          = -0.0000025323;
         
-        DragRho0 = 0.3614; % kg/km^3 
-        r0Drag   = 7000 + EarthRadius; % km
-        DragH    = 88.667; % km
     end
 end

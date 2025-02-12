@@ -1,4 +1,4 @@
-function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
 % Batch filter to process spaceceraft observation measurements
 %
 %%%%%%%%%% INPUTS %%%%%%%%%%
@@ -16,9 +16,6 @@ XrefPrev = [Xprev; STMprev];
 
 % iteration counter
 j = 0;
-
-% intial start for overall while loop
-xhatMag = 10*critConv;
 
 % overall convergence loop
 while xhatMag > critConv
@@ -100,13 +97,10 @@ while xhatMag > critConv
             P0est = deltaCholRinv*deltaCholRinv';
             
             % solve for initial pert condition
-            xhat0est = P0est*N;
+            xhat0est = deltaChol*N;
             
-            % magnitude of estimated x
-            xhatMag = norm(xhat0est);
+            % check the convergence of xhat0
             
-            % update and re-run the batch again!
-            XrefPrev(1:6) = XrefPrev(1:6) + xhat0est; 
             
         end % end of obs measurements
         
@@ -115,6 +109,3 @@ while xhatMag > critConv
         measDeltaHist(:,i) = measDelta;
         
     end
-end
-
-end
