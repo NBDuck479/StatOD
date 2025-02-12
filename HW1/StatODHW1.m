@@ -377,6 +377,13 @@ end
 % spacecraft reference state
 spacecraftState = [refPos'; refVel'];
 
+%% linearized H matrix from reference state
+for i = 1:length(t)
+    for j = 1:3
+        Htilde{i,j} = Measurements.HtildeSC(spacecraftState(:,i), stationECI{i,j}) * visibilityMask(i,j);
+    end
+end
+
 % get measurements for the spacecraft from each station
 
 for i = 1:length(t)
@@ -386,6 +393,12 @@ for i = 1:length(t)
         rangeRate{i,j}    = dot(range{i,j}, spacecraftState(4:6,i) - stationVelECI{i,j}) / rangeNorm(i,j);
     end
 end
+
+% save off measurement struct for later access
+MeasStruct.Meas4aHW1.RangeMeas = rangeNorm;
+MeasStruct.Meas4aHW1.RangeRateMeas = cell2mat(rangeRate); 
+MeasStruct.Meas4aHW1.ElevAng = viewingAngles;
+
 
 subplot(3,1,1)
 plot(rangeNorm)
@@ -401,6 +414,7 @@ subplot(3,1,3)
 plot(viewingAngles)
 ylabel('Elevation Angle')
 grid on
+
 
 % get measurements for each station
 
