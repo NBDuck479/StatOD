@@ -57,6 +57,7 @@ for i = 1:length(tVec)
     end
     
     timePrev = tVec(i);
+
     
     % Extract the reference trajectory states
     refTrajStates = TrajNom(end,1:6);
