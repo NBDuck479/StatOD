@@ -30,21 +30,28 @@ function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist
 % Plus: A Posteriori Value
 %
 % set filter initial conditions
-xhatPrev = pert;
-pPrev = P0;
-refState = IC;
-timePrev = 0;
+
 
 % Set filter to loop over number of observations
-for i = 1:length(tVec)-1
+for i = 1:length(tVec)
+    
+    % first loop 
+    if i == 1
+        % set filter initial conditions
+        xhatPrev = pert;
+        pPrev = P0;
+        refState = IC;
+        timePrev = 0;
+    
+        % nomTraj is input state
+        TrajNom = [IC]
         
     %--- Integrate ref traj & STM between each time step---
     % Set integrator options
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i)
-        :tVec(i+1)], refState, odeOptions, mu, J2, Re);
+    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [tVec(i):tVec(i+1)], refState, odeOptions, mu, J2, Re);
     
     % Extract the reference trajectory states
     refTrajStates = TrajNom(end,1:6);
