@@ -1,2 +1,5 @@
-*.asv
-*.png
+# Ignore everything
+*
+
+# Do not ignore .m files
+!.m
