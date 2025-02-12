@@ -41,7 +41,7 @@ for i = 1:length(tVec)
         pPrev = P0;
         TrajNom = IC'; 
         timePrev = 0;
-        PhiTotal = reshape(TrajNom(end,7:end), [6,6]);
+        PhiTotal = TrajNom(end,7:end);
     else
         
     %--- Integrate ref traj & STM between each time step---
@@ -102,7 +102,7 @@ for i = 1:length(tVec)
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-      %  assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
@@ -133,7 +133,7 @@ for i = 1:length(tVec)
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
-    refState = [refTrajStates'; reshape(eye(6,6), [36,1])]; 
+    refState = [refTrajStates'; reshape(eye(6,6), [36,1]]; 
     
 end
 
