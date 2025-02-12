@@ -87,7 +87,7 @@ for i = 1:length(tVec)
         refRangeMeas     = yHistRef.Range(i,statNumOb);
         refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
         
-        compMeas = [refRangeMeas; refRangeRateMeas];        % [compMeas] = Measurements.ComputedMeas(yHistRef, Htilde{i}, xMinus, statNumOb, i);
+        compMeas = [refRangeMeas; refRangeRateMeas];        
         
         % pre-fit measurement residuals
         measDelta = rmmissing(observedMeas(i,:))' - compMeas;
@@ -98,11 +98,11 @@ for i = 1:length(tVec)
         % -- Measurement Update
         measRes = measDelta - Htilde{i}*xMinus;
         xhatPlus = xMinus + Kk * measRes;
-        Pplus = (eye(6,6) - Kk*Htilde{i}) * pPrev * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+        Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-      %  assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
