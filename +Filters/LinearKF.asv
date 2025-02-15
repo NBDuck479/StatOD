@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, obStat)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, statNo)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -76,29 +76,24 @@ for i = 1:length(tVec)
     xMinus = STM * xhatPrev; 
     pMinus = STM * pPrev * STM';
     
-    % determine if time aligns with observation
-    if ismember(tVec(i), obTime)
-        
-        % get index of observaiton
-        obInd = find(obTime == tVec(i));
-        
-        % get station number 
-        statNumOb = obStat(obInd);
-        
+    % function to determine which station observed the spacecraft
+    [statNumOb] = Measurements.StationObs(visibilityMask, i);
+    
+    if ~isempty(statNumOb)
         % each column is station
-        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb);
+        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{i,statNumOb}, statNumOb);
         
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
         
         % calcualte the computed measurements
-        refRangeMeas     = yHistRef.Range(obInd,statNumOb);
-        refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
+        refRangeMeas     = yHistRef.Range(i,statNumOb);
+        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
         
         compMeas = [refRangeMeas; refRangeRateMeas];        
         
         % pre-fit measurement residuals
-        measDelta = rmmissing(observedMeas(obInd,:))' - compMeas;
+        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
         
         % --- Kalman Gain
         Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);

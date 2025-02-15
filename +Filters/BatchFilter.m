@@ -1,4 +1,4 @@
-function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH)
+function [xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obTime, obStat)
 % Batch filter to process spaceceraft observation measurements
 %
 %%%%%%%%%% INPUTS %%%%%%%%%%
@@ -57,21 +57,28 @@ while j < 3
         % --- Accumulate current observation
         % function to determine which filter observed and calc measurement
         % delta
-        [statNumOb] = Measurements.StationObs(visibilityMask, i);
+%        [statNumOb] = Measurements.StationObs(visibilityMask, i);
         
         % Check if station made an observation
-        if ~isempty(statNumOb)
+        if ismember(tVec(i), obTime)
+            
+            % get index of observaiton
+            obInd = find(obTime == tVec(i));
+            
+            % get station number
+            statNumOb = obStat(obInd);
+            
             % Compute Htilde
-            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{i,statNumOb}, statNumOb);
+            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb);
             
             % calcualte the computed measurements
-            refRangeMeas     = yHistRef.Range(i,statNumOb);
-            refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+            refRangeMeas     = yHistRef.Range(obInd,statNumOb);
+            refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
             
             compMeas = [refRangeMeas; refRangeRateMeas];
             
             % measurement delta
-            measDelta(:,i) = rmmissing(observedMeas(i,:))' - compMeas;
+            measDelta(:,i) = rmmissing(observedMeas(obInd,:))' - compMeas;
             
             % propagate Htilde
             H = Htilde{i} * STM;
@@ -112,12 +119,12 @@ while j < 3
     RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
     
     % Linearized post-fits
-    for k = 1:length(tVec)
+    for k = 1:length(tVec)-1
         % get STM at each step
         STM = reshape(TrajNom(k, NumStates+1:end), [NumStates, NumStates]);
         
         % prop linearized H
-        H = Htilde{i} * STM;
+        H = Htilde{k} * STM;
         resid_pf(:,k) = measDelta(:,k) - H*xhat0est;
     end
     
@@ -142,6 +149,8 @@ end % end of obs measurements
 
 % save off some histories
 phiHist = phi;
-measDeltaHist = measDelta;
+resid_pfHist = resid_pf;
+
+preFit_res = measDelta; 
 
 end
