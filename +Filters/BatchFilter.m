@@ -1,4 +1,4 @@
-function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH)
 % Batch filter to process spaceceraft observation measurements
 %
 %%%%%%%%%% INPUTS %%%%%%%%%%
@@ -8,8 +8,8 @@ function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, per
 [observedMeas] = Measurements.FilterMeasLoadIn(yHist);
 
 % set starting condition for filter
-Xprev   = IC(1:6);
-STMprev = IC(7:end);
+Xprev   = IC(1:NumStates);
+STMprev = IC(NumStates+1:end);
 
 % Build first intitial condition
 XrefPrev = [Xprev; STMprev];
@@ -21,7 +21,7 @@ j = 0;
 xhatMag = 10*critConv;
 
 % overall convergence loop
-while xhatMag > critConv
+while j < 3
     
     % update iteration counter
     j = j + 1;
@@ -39,18 +39,18 @@ while xhatMag > critConv
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory for time step
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, tVec, XrefPrev, odeOptions, mu, J2, Re);
+    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tVec, XrefPrev, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
     
     % Process each observation
     for i = 1:length(tVec)
         
         % Extract the reference trajectory states
-        refTrajStates = TrajNom(i,1:6);
+        refTrajStates = TrajNom(i,1:NumStates);
         
         % Extract the Integrated STM - STM is by Row!
-        phi = TrajNom(i,7:end);
+        phi = TrajNom(i,NumStates+1:end);
         
-        STM = reshape(phi, [6,6]);
+        STM = reshape(phi, [NumStates,NumStates]);
         
         % keep track of STM mapped back to time zero
         
@@ -62,7 +62,7 @@ while xhatMag > critConv
         % Check if station made an observation
         if ~isempty(statNumOb)
             % Compute Htilde
-            Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{i,statNumOb}, statNumOb);
             
             % calcualte the computed measurements
             refRangeMeas     = yHistRef.Range(i,statNumOb);
@@ -71,50 +71,77 @@ while xhatMag > critConv
             compMeas = [refRangeMeas; refRangeRateMeas];
             
             % measurement delta
-            measDelta = rmmissing(observedMeas(i,:))' - compMeas;
+            measDelta(:,i) = rmmissing(observedMeas(i,:))' - compMeas;
             
             % propagate Htilde
             H = Htilde{i} * STM;
             
             % update delta and N
             delta = delta + H'*inv(R)*H;
-            N = N + H'*inv(R)*measDelta;
+            N = N + H'*inv(R)*measDelta(:,i);
         else
             % no ob given
-            Htilde{i} = [NaN NaN NaN NaN NaN NaN; NaN NaN NaN NaN NaN NaN];
+            
         end
         
-        if i < length(tVec)
-            % Go back and read in the next observation
-            
-        else
-            % Finished processing!
-            
-            % --- Solve Normal Equations
-            
-            % invert the information matrix, delta
-            deltaCholR = chol(delta);
-            
-            deltaCholRinv = inv(deltaCholR);
-            
-            P0est = deltaCholRinv*deltaCholRinv';
-            
-            % solve for initial pert condition
-            xhat0est = P0est*N;
-            
-            % magnitude of estimated x
-            xhatMag = norm(xhat0est);
-            
-            % update and re-run the batch again!
-            XrefPrev(1:6) = XrefPrev(1:6) + xhat0est; 
-            
-        end % end of obs measurements
-        
-        % save off some histories
-        phiHist(i, :) = phi;
-        measDeltaHist(:,i) = measDelta;
-        
     end
-end
+    
+    
+    % Finished processing!
+    
+    % --- Solve Normal Equations
+    
+    % invert the information matrix, delta
+    deltaCholR = chol(delta);
+    
+    deltaCholRinv = inv(deltaCholR);
+    
+    P0est = deltaCholRinv*deltaCholRinv';
+    
+    % solve for initial pert condition
+    xhat0est = P0est*N;
+    
+    % magnitude of estimated x
+    xhatMag = norm(xhat0est);
+    
+    % update and re-run the batch again!
+    XrefPrev(1:NumStates) = XrefPrev(1:NumStates) + xhat0est;
+    
+    % Pre-fit RMS
+    RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+    RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
+    
+    % Linearized post-fits
+    for k = 1:length(tVec)
+        % get STM at each step
+        STM = reshape(TrajNom(k, NumStates+1:end), [NumStates, NumStates]);
+        
+        % prop linearized H
+        H = Htilde{i} * STM;
+        resid_pf(:,k) = measDelta(:,k) - H*xhat0est;
+    end
+    
+    % post fit
+    RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+    RMS_RhoDot_pf = sqrt(sum(resid_pf(2,:).^2)) / length(resid_pf(2,:));
+    
+    % print out what is happening
+    fprintf('--- Iteration %d info: ---\n', j );
+    fprintf('Pre-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_Rho );
+    fprintf('RhoDot = %g km\n', RMS_RhoDot );
+    fprintf('Post-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_Rho_pf );
+    fprintf('RhoDot = %g km\n', RMS_RhoDot_pf );
+
+    fprintf('\n---------------------------------------------\n\n');
+
+    
+end % end of obs measurements
+
+
+% save off some histories
+phiHist = phi;
+measDeltaHist = measDelta;
 
 end

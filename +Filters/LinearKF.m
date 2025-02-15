@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -41,7 +41,7 @@ for i = 1:length(tVec)
         pPrev = P0;
         TrajNom = IC'; 
         timePrev = 0;
-        PhiTotal = reshape(TrajNom(end,7:end), [6,6]);
+        PhiTotal = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
     else
         
     %--- Integrate ref traj & STM between each time step---
@@ -49,7 +49,9 @@ for i = 1:length(tVec)
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tVec(i)], refState, odeOptions, mu, J2, Re);
+    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, [timePrev:tVec(i)], refState, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+    
+    % propagated stations in ECEF so rotate those states into ECI!
     
     % set previous time
     timePrev = tVec(i);
@@ -60,13 +62,13 @@ for i = 1:length(tVec)
 
     
     % Extract the reference trajectory states
-    refTrajStates = TrajNom(end,1:6);
+    refTrajStates = TrajNom(end,1:NumStates);
     
     % Extract the Integrated STM (maps previous to current time)
-    phi = TrajNom(end,7:end);
+    phi = TrajNom(end,NumStates+1:end);
     
     % reshapre the STM
-    STM = reshape(phi, [6,6]);
+    STM = reshape(phi, [NumStates,NumStates]);
     
     PhiTotal = STM*PhiTotal; 
     
@@ -79,7 +81,7 @@ for i = 1:length(tVec)
     
     if ~isempty(statNumOb)
         % each column is station
-        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{i,statNumOb}, statNumOb);
         
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
@@ -99,7 +101,7 @@ for i = 1:length(tVec)
         % -- Measurement Update
         measRes = measDelta - Htilde{i}*xMinus;
         xhatPlus = xMinus + Kk * measRes;
-        Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+        Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
@@ -134,7 +136,7 @@ for i = 1:length(tVec)
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
-    refState = [refTrajStates'; reshape(eye(6,6), [36,1])]; 
+    refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])]; 
     
 end
 
