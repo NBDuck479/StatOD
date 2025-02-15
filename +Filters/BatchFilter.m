@@ -41,6 +41,9 @@ while j < 3
     % Integrate Trajectory for time step
     [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tVec, XrefPrev, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
     
+    % save off phiHist
+    phiHist = TrajNom(:,NumStates+1:end);
+    
     % Process each observation
     for i = 1:length(tVec)
         
@@ -119,7 +122,7 @@ while j < 3
     RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
     
     % Linearized post-fits
-    for k = 1:length(tVec)-1
+    for k = 1:length(tVec)
         % get STM at each step
         STM = reshape(TrajNom(k, NumStates+1:end), [NumStates, NumStates]);
         
@@ -148,7 +151,6 @@ end % end of obs measurements
 
 
 % save off some histories
-phiHist = phi;
 resid_pfHist = resid_pf;
 
 preFit_res = measDelta; 
