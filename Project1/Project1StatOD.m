@@ -1,5 +1,4 @@
 %% StatOD project 1 
-addpath('C:\Users\user\OneDrive - UCB-O365\Desktop\Spring 2025\StatOD\repo\Project1')
 %% define the constants 
 Re       = 6378.13;
 DragRho0 = 3.6140e-22; % kg/km^3 
@@ -162,12 +161,36 @@ critConv = 10^-3;
 % Total number in state vector
 NumStates = 18;
 
-[xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = Filters.BatchFilter(Y0, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, obsHist.time, Y0(7), Y0(8), Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obsHist.time, obsHist.statNo);
+% flag for range (1), range rate (2), all (3)
+MeasFlag = 3; 
+
+[xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = Filters.BatchFilter(Y0, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, obsHist.time, Y0(7), Y0(8), Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obsHist.time, obsHist.statNo, MeasFlag);
 
 % --- propagate the estimated Xhat0 in time
+% propagate with ode45 as IC + xhat0est
+[~,YBatchX0est] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tOverall, [Y0(1:18) + xhat0est; reshape(eye(18,18), [18^2,1])], odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+[~,YNominal] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tOverall, [Y0(1:18); reshape(eye(18,18), [18^2,1])], odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+
+% subtract out nominal state 
+xhat0Hist = YBatchX0est - YNominal;
+
+% use STM from ode45 pert prop to get the cov propagation 
+batchSTM = YBatchX0est(:,19:end);
+
+for i = 1:length(batchSTM)
+   
+    P0histBatch{i} = reshape(batchSTM(i,:), [18,18]) * P0est * reshape(batchSTM(i,:), [18,18])'; 
+end
+
+Utility.BatchEstErrPlotter(P0histBatch, 18, xhat0Hist, fig, obsHist.time , tOverall)
 
 % wanting to plot residuals on overall time scale
-Utility.BatchResidPlotter(preFit_res, resid_pfHist, obsHist, fig)
+Utility.BatchResidPlotter(preFit_res, resid_pfHist, obsHist, fig);
+
+finalposCov = P0histBatch{end}(1:3,1:3);
+
+% covariance error ellipse at final time
+fig = Utility.CovUncertEllipse(finalposCov, scRefpos, xhat0Hist, fig);
 
 [Tbatch, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tOverall, [pert; reshape(eye(18,18), [18^2, 1])], odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
 
@@ -181,57 +204,108 @@ end
 
 %% Set up linearized Kalman Filter
 
-% feed entire time into filter
- t = 0:10:18339;
-
-[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(Y0, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, t, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obsHist.time, obsHist.statNo);
+[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(Y0, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tOverall, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obsHist.time, obsHist.statNo, MeasFlag);
 fig = 1; 
-[threeSigmaStates] = Utility.plotLKFEstError(covPlus, NumStates, xhist, fig, obsHist.time);
+[threeSigmaStates] = Utility.plotLKFEstError(covPlus, NumStates, xhist, fig, obsHist.time, tOverall);
 
-Utility.LKFhistogramPlotter(measResHist)
+measDeltaHistMat = cell2mat(measDeltaHist);
 
+Utility.LKFhistogramPlotter(measDeltaHistMat)
 
-% --- final covaraince ellipse plotting
+% plot lkf residuals
+Utility.LKFResidPlotter(measDeltaHist, measResHist, obsHist, fig, tOverall)
+
+RMS_Range = sqrt(sum(rmmissing(measResHist(1,:)).^2))/length(rmmissing(measResHist(1,:)));
+RMS_RangeRate = sqrt(sum(rmmissing(measResHist(2,:)).^2))/length(rmmissing(measResHist(2,:)));
+        
+measDeltaHist = cell2mat(measDeltaHist);
+RMS_Range_pf = sqrt(sum(rmmissing(measDeltaHist(1,:)).^2)) / length(rmmissing(measDeltaHist(1,:)));
+RMS_Rangerate_pf = sqrt(sum(rmmissing(measDeltaHist(2,:)).^2)) / length(rmmissing(measDeltaHist(2,:)));
+
+%% --- final covaraince ellipse plotting
 % Pull the final covaraince matrix
 ckfFinalCov = covPlus{end};
 
 % extract position final covaraince
 finalposCov = ckfFinalCov(1:3,1:3);
 
-% eigen decomp: V columns are eigVec
-[eigVec,eigVal] = eig(finalposCov);
+fig = Utility.CovUncertEllipse(finalposCov, scRefpos, xhist, fig);
 
-% the mean is the estimated xhat plue the Xref(end)
-Xfinal = xhist(1:3, end) + scRefpos(end,:)';
+%% Relative trength of measurements
 
-% square root of eigenvalues
-lambda1 = sqrt(eigVal(1,1)); 
-lambda2 = sqrt(eigVal(2,2)); 
-lambda3 = sqrt(eigVal(3,3)); 
+% only prcess the range measurements in batch
+measFlag = 1; % 1 is range, 2 is range rate, 3 is both
 
-% create unit sphere
-[Xs, Ys, Zs] = sphere(100);
+[xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = Filters.BatchFilter(Y0, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, obsHist.time, Y0(7), Y0(8), Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obsHist.time, obsHist.statNo, measFlag);
 
-Xs = Xs * sqrt(lambda1);
-Ys = Ys * sqrt(lambda2);
-Zs = Zs * sqrt(lambda3);
+finalposCov = P0histBatch{end}(1:3,1:3);
 
-% ellipsoid rotation
-ellipsoid_points = eigVec * [Xs(:), Ys(:), Zs(:)]';
-Xs = reshape(ellipsoid_points(1,:), size(Xs));
-Ys = reshape(ellipsoid_points(2,:), size(Ys));
-Zs = reshape(ellipsoid_points(3,:), size(Zs));
+% Plot the estimation error and final covariance ellipse
+fig = Utility.CovUncertEllipse(finalposCov, scRefpos, xhat0Hist, fig);
 
-% plot ellipsoid
-figure(fig)
-surf(Xs, Ys, Zs)
-
-xlabel('X [km]');
-ylabel('Y [km]');
-zlabel('Z [km]');
-
-title('3D Position Covariance Ellipsoid');
+% estimation error
+Utility.BatchEstErrPlotter(P0histBatch, 18, xhat0Hist, fig, obsHist.time , tOverall)
 
 
+measFlag = 2; % 1 is range, 2 is range rate, 3 is both
+
+[xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = Filters.BatchFilter(Y0, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, obsHist.time, Y0(7), Y0(8), Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obsHist.time, obsHist.statNo, measFlag);
+
+finalposCov = P0histBatch{end}(1:3,1:3);
+
+% Plot the estimation error and final covariance ellipse
+fig = Utility.CovUncertEllipse(finalposCov, scRefpos, xhat0Hist, fig);
+
+% estimation error
+Utility.BatchEstErrPlotter(P0histBatch, 18, xhat0Hist, fig, obsHist.time , tOverall);
 
 %% Changing fixed stations
+
+% -- No stations fixed
+P0 = diag([1*10^6 * mm2km2, 1*10^6 *mm2km2, 1*10^6 *mm2km2,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1^10^20 * (0.001*0.001*0.001)^2,...
+    1*10^6, 1*10^6,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2]);
+
+[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(Y0, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tOverall, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obsHist.time, obsHist.statNo, MeasFlag);
+
+[threeSigmaStates] = Utility.plotLKFEstError(covPlus, NumStates, xhist, fig, obsHist.time, tOverall);
+
+
+% -- Different station fixed 
+P0 = diag([1*10^6 * mm2km2, 1*10^6 *mm2km2, 1*10^6 *mm2km2,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1^10^20 * (0.001*0.001*0.001)^2,...
+    1*10^6, 1*10^6,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1*10^6 * mm2km2, 1*10^6 * mm2km2, 1*10^6 * mm2km2,...
+    1*10^-10 * mm2km2, 1*10^-10 * mm2km2, 1*10^-10 * mm2km2]);
+
+[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(Y0, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tOverall, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obsHist.time, obsHist.statNo, MeasFlag);
+
+[threeSigmaStates] = Utility.plotLKFEstError(covPlus, NumStates, xhist, fig, obsHist.time, tOverall);
+
+
+%% Extra Elements
+
+% make a priori covaraince more realistic
+P0 = diag([1 * mm2km2, 1 *mm2km2, 1 *mm2km2,...
+    0.5 * mm2km2, 0.5 * mm2km2, 0.5 * mm2km2,...
+    1 * (0.001*0.001*0.001)^2,...
+    1*10^-6, 1*10^-6,...
+    1 * mm2km2, 1 * mm2km2, 1* mm2km2,...
+    1 * mm2km2, 1 * mm2km2, 1 * mm2km2,...
+    1 * mm2km2, 1 * mm2km2, 1 * mm2km2]);
+
+
+measFlag = 3; % 1 is range, 2 is range rate, 3 is both
+
+[xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = Filters.BatchFilter(Y0, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, obsHist.time, Y0(7), Y0(8), Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obsHist.time, obsHist.statNo, measFlag);
+
+finalposCov = P0histBatch{end}(1:3,1:3);
+
+% estimation error
+Utility.BatchEstErrPlotter(P0histBatch, 18, xhat0Hist, fig, obsHist.time , tOverall)

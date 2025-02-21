@@ -1,4 +1,4 @@
-function [xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obTime, obStat)
+function [xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obTime, obStat, MeasFlag)
 % Batch filter to process spaceceraft observation measurements
 %
 %%%%%%%%%% INPUTS %%%%%%%%%%
@@ -6,6 +6,16 @@ function [xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = BatchFil
 
 % Function to help sort measurements - these are noisy measurements of ref
 [observedMeas] = Measurements.FilterMeasLoadIn(yHist);
+
+if MeasFlag == 1
+    observedMeas = observedMeas(:,1);
+    R = R(1,1);
+elseif MeasFlag == 2
+    observedMeas = observedMeas(:,2);
+    R = R(2,2);
+else
+    % process all measurements
+end
 
 % set starting condition for filter
 Xprev   = IC(1:NumStates);
@@ -72,13 +82,24 @@ while j < 3
             statNumOb = obStat(obInd);
             
             % Compute Htilde
-            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb);
+            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb, MeasFlag);
             
-            % calcualte the computed measurements
-            refRangeMeas     = yHistRef.Range(obInd,statNumOb);
-            refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
-            
-            compMeas = [refRangeMeas; refRangeRateMeas];
+            if MeasFlag == 1
+                refRangeMeas = yHistRef.Range(obInd,statNumOb);
+                compMeas = refRangeMeas;
+                 
+            elseif MeasFlag == 2
+                refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
+                compMeas = refRangeRateMeas;
+                
+            elseif MeasFlag == 3
+                % calcualte the computed measurements
+                refRangeMeas     = yHistRef.Range(obInd,statNumOb);
+                refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
+                
+                compMeas = [refRangeMeas; refRangeRateMeas];
+                
+            end
             
             % measurement delta
             measDelta(:,i) = rmmissing(observedMeas(obInd,:))' - compMeas;
@@ -117,10 +138,6 @@ while j < 3
     % update and re-run the batch again!
     XrefPrev(1:NumStates) = XrefPrev(1:NumStates) + xhat0est;
     
-    % Pre-fit RMS
-    RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
-    RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
-    
     % Linearized post-fits
     for k = 1:length(tVec)
         % get STM at each step
@@ -131,9 +148,27 @@ while j < 3
         resid_pf(:,k) = measDelta(:,k) - H*xhat0est;
     end
     
-    % post fit
-    RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
-    RMS_RhoDot_pf = sqrt(sum(resid_pf(2,:).^2)) / length(resid_pf(2,:));
+    
+    if MeasFlag == 1
+        RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        RMS_RhoDot = NaN;
+        
+        RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_RhoDot_pf = NaN;
+    elseif MeasFlag == 2
+        RMS_Rho = NaN;
+        RMS_RhoDot = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        
+        RMS_RhoDot_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_Rho_pf = NaN;
+    else
+        RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
+        
+        RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_RhoDot_pf = sqrt(sum(resid_pf(2,:).^2)) / length(resid_pf(2,:));
+    end
+    
     
     % print out what is happening
     fprintf('--- Iteration %d info: ---\n', j );

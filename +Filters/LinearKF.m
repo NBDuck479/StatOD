@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, obStat)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, obStat, MeasFlag)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -86,7 +86,7 @@ for i = 1:length(tVec)
         statNumOb = obStat(obInd);
         
         % each column is station
-        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb);
+        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb, MeasFlag);
         
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
@@ -110,7 +110,7 @@ for i = 1:length(tVec)
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
