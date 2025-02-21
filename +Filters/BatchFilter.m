@@ -1,4 +1,4 @@
-function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+function [xhat0est, P0est, phiHist, resid_pfHist, Htilde, preFit_res] = BatchFilter(IC, NumStates, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re, omegaEarth, Area, Mass, DragRho0, r0Drag, DragH, obTime, obStat, MeasFlag)
 % Batch filter to process spaceceraft observation measurements
 %
 %%%%%%%%%% INPUTS %%%%%%%%%%
@@ -7,91 +7,187 @@ function [xhat0est, P0est, phiHist, measDeltaHist, Htilde] = BatchFilter(IC, per
 % Function to help sort measurements - these are noisy measurements of ref
 [observedMeas] = Measurements.FilterMeasLoadIn(yHist);
 
+if MeasFlag == 1
+    observedMeas = observedMeas(:,1);
+    R = R(1,1);
+elseif MeasFlag == 2
+    observedMeas = observedMeas(:,2);
+    R = R(2,2);
+else
+    % process all measurements
+end
+
 % set starting condition for filter
-Xprev   = IC(1:6);
-STMprev = IC(7:end);
+Xprev   = IC(1:NumStates);
+STMprev = IC(NumStates+1:end);
 
 % Build first intitial condition
 XrefPrev = [Xprev; STMprev];
 
-% set a priori estimates
-delta = inv(P0);
-N = inv(P0)\pert;
+% iteration counter
+j = 0;
 
-% Integrate reference trajectory and STM
-% Set integrator options
-odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+% intial start for overall while loop
+xhatMag = 10*critConv;
 
-% Integrate Trajectory for time step
-[T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, tVec, XrefPrev, odeOptions, mu, J2, Re);
-
-% Process each observation
-for i = 1:length(tVec)-1
+% overall convergence loop
+while j < 3
     
-    % Extract the reference trajectory states
-    refTrajStates = TrajNom(i+1,1:6);
+    % update iteration counter
+    j = j + 1;
     
-    % Extract the Integrated STM - STM is by Row!
-    phi = TrajNom(i+1,7:end);
+    % set a priori estimates
+    deltaR = inv(chol(P0));
     
-    STM = reshape(phi, [6,6]);
+    delta = deltaR * deltaR';
     
-    % keep track of STM mapped back to time zero
+    % solve for initial N
+    N = delta * pert;
     
-    % --- Accumulate current observation
-    % function to determine which filter observed and calc measurement
-    % delta
-    [statNumOb] = Measurements.StationObs(visibilityMask, i);
+    % Integrate reference trajectory and STM
+    % Set integrator options
+    odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
-    % Check if station made an observation
-    if ~isempty(statNumOb)
-        % Compute Htilde
-        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+    % Integrate Trajectory for time step
+    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, tVec, XrefPrev, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+    
+    % save off phiHist
+    phiHist = TrajNom(:,NumStates+1:end);
+    
+    % Process each observation
+    for i = 1:length(tVec)
         
-        % calcualte the computed measurements
-        refRangeMeas     = yHistRef.Range(i,statNumOb);
-        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+        % Extract the reference trajectory states
+        refTrajStates = TrajNom(i,1:NumStates);
         
-        compMeas = [refRangeMeas; refRangeRateMeas];
+        % Extract the Integrated STM - STM is by Row!
+        phi = TrajNom(i,NumStates+1:end);
         
-        % measurement delta
-        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
+        STM = reshape(phi, [NumStates,NumStates]);
         
-        % propagate Htilde
-        H = Htilde{i} * STM;
+        % keep track of STM mapped back to time zero
         
-        % update delta and N
-        delta = delta + H'*inv(R)*H;
-        N = N + H'*inv(R)*measDelta;
-    else
-        % no ob given
-        Htilde{i} = [NaN NaN NaN NaN NaN NaN; NaN NaN NaN NaN NaN NaN];
+        % --- Accumulate current observation
+        % function to determine which filter observed and calc measurement
+        % delta
+%        [statNumOb] = Measurements.StationObs(visibilityMask, i);
+        
+        % Check if station made an observation
+        if ismember(tVec(i), obTime)
+            
+            % get index of observaiton
+            obInd = find(obTime == tVec(i));
+            
+            % get station number
+            statNumOb = obStat(obInd);
+            
+            % Compute Htilde
+            Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb, MeasFlag);
+            
+            if MeasFlag == 1
+                refRangeMeas = yHistRef.Range(obInd,statNumOb);
+                compMeas = refRangeMeas;
+                 
+            elseif MeasFlag == 2
+                refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
+                compMeas = refRangeRateMeas;
+                
+            elseif MeasFlag == 3
+                % calcualte the computed measurements
+                refRangeMeas     = yHistRef.Range(obInd,statNumOb);
+                refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
+                
+                compMeas = [refRangeMeas; refRangeRateMeas];
+                
+            end
+            
+            % measurement delta
+            measDelta(:,i) = rmmissing(observedMeas(obInd,:))' - compMeas;
+            
+            % propagate Htilde
+            H = Htilde{i} * STM;
+            
+            % update delta and N
+            delta = delta + H'*inv(R)*H;
+            N = N + H'*inv(R)*measDelta(:,i);
+        else
+            % no ob given
+            
+        end
+        
     end
     
-    if i < length(tVec)/2-2
-        % Go back and read in the next observation
+    
+    % Finished processing!
+    
+    % --- Solve Normal Equations
+    
+    % invert the information matrix, delta
+    deltaCholR = chol(delta);
+    
+    deltaCholRinv = inv(deltaCholR);
+    
+    P0est = deltaCholRinv*deltaCholRinv';
+    
+    % solve for initial pert condition
+    xhat0est = P0est*N;
+    
+    % magnitude of estimated x
+    xhatMag = norm(xhat0est);
+    
+    % update and re-run the batch again!
+    XrefPrev(1:NumStates) = XrefPrev(1:NumStates) + xhat0est;
+    
+    % Linearized post-fits
+    for k = 1:length(tVec)
+        % get STM at each step
+        STM = reshape(TrajNom(k, NumStates+1:end), [NumStates, NumStates]);
         
+        % prop linearized H
+        H = Htilde{k} * STM;
+        resid_pf(:,k) = measDelta(:,k) - H*xhat0est;
+    end
+    
+    
+    if MeasFlag == 1
+        RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        RMS_RhoDot = NaN;
+        
+        RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_RhoDot_pf = NaN;
+    elseif MeasFlag == 2
+        RMS_Rho = NaN;
+        RMS_RhoDot = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        
+        RMS_RhoDot_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_Rho_pf = NaN;
     else
-        % Finished processing!
+        RMS_Rho = sqrt(sum(measDelta(1,:).^2))/length(measDelta(1,:));
+        RMS_RhoDot = sqrt(sum(measDelta(2,:).^2))/length(measDelta(2,:));
         
-        % --- Solve Normal Equations
-        
-        % invert the information matrix, delta
-        deltaChol = chol(delta);
-        
-        % solve for initial pert condition
-        xhat0est = deltaChol\(deltaChol'\N);
-        
-        % check the convergence of xhat0
-        
-        % covariance
-        P0est = inv(deltaChol);
-        
-        
-    end % end of obs measurements
+        RMS_Rho_pf = sqrt(sum(resid_pf(1,:).^2)) / length(resid_pf(1,:));
+        RMS_RhoDot_pf = sqrt(sum(resid_pf(2,:).^2)) / length(resid_pf(2,:));
+    end
     
-    % save off some histories 
-    phiHist(i, :) = phi; 
-    measDeltaHist(:,i) = measDelta;
     
+    % print out what is happening
+    fprintf('--- Iteration %d info: ---\n', j );
+    fprintf('Pre-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_Rho );
+    fprintf('RhoDot = %g km\n', RMS_RhoDot );
+    fprintf('Post-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_Rho_pf );
+    fprintf('RhoDot = %g km\n', RMS_RhoDot_pf );
+
+    fprintf('\n---------------------------------------------\n\n');
+
+    
+end % end of obs measurements
+
+
+% save off some histories
+resid_pfHist = resid_pf;
+
+preFit_res = measDelta; 
+
 end

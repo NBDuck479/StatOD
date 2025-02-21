@@ -320,8 +320,9 @@ fig = fig + 1;
 
 %% Batch filter testing
 
+critConv = 1e-3;
 
-[xhat0est, P0est, phiHist, measDeltaHist, Htilde] = Filters.BatchFilter(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, t, mu, J2, Re);
+[xhat0est, P0est, phiHist, measDeltaHist, Htilde] = Filters.BatchFilter(IC, pert, P0, R, critConv, yHist, yHistRef, stationECI, visibilityMask, t, mu, J2, Re);
 
 % --- get the post fit residuals ---
 for k = 1:length(t)/2-1

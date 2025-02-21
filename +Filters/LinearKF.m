@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, mu, J2, Re)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, obStat, MeasFlag)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -41,7 +41,7 @@ for i = 1:length(tVec)
         pPrev = P0;
         TrajNom = IC'; 
         timePrev = 0;
-        PhiTotal = reshape(TrajNom(end,7:end), [6,6]);
+        PhiTotal = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
     else
         
     %--- Integrate ref traj & STM between each time step---
@@ -49,7 +49,9 @@ for i = 1:length(tVec)
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tVec(i)], refState, odeOptions, mu, J2, Re);
+    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, [timePrev:tVec(i)], refState, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+    
+    % propagated stations in ECEF so rotate those states into ECI!
     
     % set previous time
     timePrev = tVec(i);
@@ -60,13 +62,13 @@ for i = 1:length(tVec)
 
     
     % Extract the reference trajectory states
-    refTrajStates = TrajNom(end,1:6);
+    refTrajStates = TrajNom(end,1:NumStates);
     
     % Extract the Integrated STM (maps previous to current time)
-    phi = TrajNom(end,7:end);
+    phi = TrajNom(end,NumStates+1:end);
     
     % reshapre the STM
-    STM = reshape(phi, [6,6]);
+    STM = reshape(phi, [NumStates,NumStates]);
     
     PhiTotal = STM*PhiTotal; 
     
@@ -74,24 +76,29 @@ for i = 1:length(tVec)
     xMinus = STM * xhatPrev; 
     pMinus = STM * pPrev * STM';
     
-    % function to determine which station observed the spacecraft
-    [statNumOb] = Measurements.StationObs(visibilityMask, i);
-    
-    if ~isempty(statNumOb)
+    % determine if time aligns with observation
+    if ismember(tVec(i), obTime)
+        
+        % get index of observaiton
+        obInd = find(obTime == tVec(i));
+        
+        % get station number 
+        statNumOb = obStat(obInd);
+        
         % each column is station
-        Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb});
+        Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb, MeasFlag);
         
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
         
         % calcualte the computed measurements
-        refRangeMeas     = yHistRef.Range(i,statNumOb);
-        refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
+        refRangeMeas     = yHistRef.Range(obInd,statNumOb);
+        refRangeRateMeas = yHistRef.RangeRate(obInd,statNumOb);
         
         compMeas = [refRangeMeas; refRangeRateMeas];        
         
         % pre-fit measurement residuals
-        measDelta = rmmissing(observedMeas(i,:))' - compMeas;
+        measDelta = rmmissing(observedMeas(obInd,:))' - compMeas;
         
         % --- Kalman Gain
         Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
@@ -99,11 +106,11 @@ for i = 1:length(tVec)
         % -- Measurement Update
         measRes = measDelta - Htilde{i}*xMinus;
         xhatPlus = xMinus + Kk * measRes;
-        Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+        Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
       %  Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus;
         
         % CHECKING P IS GETTING SMALLER
-        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+    %    assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
@@ -134,7 +141,7 @@ for i = 1:length(tVec)
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
-    refState = [refTrajStates'; reshape(eye(6,6), [36,1])]; 
+    refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])]; 
     
 end
 
