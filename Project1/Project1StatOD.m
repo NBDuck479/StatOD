@@ -204,7 +204,25 @@ end
 
 %% Set up linearized Kalman Filter
 
-[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(Y0, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tOverall, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obsHist.time, obsHist.statNo, MeasFlag);
+% LKF Input struct 
+LKFinputs.IC                = Y0; 
+LKFinputs.NumStates         = NumStates; 
+LKFinputs.pert              = pert; 
+LKFinputs.P0                = P0; 
+LKFinputs.R                 = R; 
+LKFinputs.yHist             = yHist; 
+LKFinputs.yHistRef          = yHistRef;
+LKFinputs.stationECI        = stationECI;
+LKFinputs.visibilityMask    = visibilityMask;
+LKFinputs.tOverall          = tOverall; 
+LKFinputs.Re                = Re; 
+LKFinputs.omegaEarth        = omegaEarth;
+LKFinputs.Area = Area; LKFinputs.Mass = Mass; LKFinputs.DragH = DragH; LKFinputs.r0Drag =  r0Drag; LKFinputs.DragRho0 = DragRho0;
+LKFinputs.obsHist           = obsHist; % whole struct for observation histories
+LKFinputs.MeasFlag          = MeasFlag; % 1 for only range, 2 for range rate, 3 for all
+
+
+[xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = Filters.LinearKF(LKFinputs);
 fig = 1; 
 [threeSigmaStates] = Utility.plotLKFEstError(covPlus, NumStates, xhist, fig, obsHist.time, tOverall);
 

@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(IC, NumStates, pert, P0, R, yHist, yHistRef, stationECI, visibilityMask, tVec, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0, obTime, obStat, MeasFlag)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(LKFinputs)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -19,6 +19,23 @@ function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist
 % covPriorHist:  [] History of pre-measurement state uncertainty
 % measResidHist: [] History of measurement residuals/innovations
 
+% --- Dynamically unpack the input struct for LKF
+
+% Get all field names in the struct
+fields = fieldnames(LKFinputs);
+
+% Loop through each field and access its value dynamically
+for i = 1:length(fields)
+    % Get the field name
+    fieldName = fields{i};
+    
+    % Access the value of the field using dynamic field referencing
+    fieldValue = LKFinputs.(fieldName);
+    
+    eval([fieldName ' = fieldValue']);
+    
+end
+
 
 % Function to help sort measurements - these are noisy measurements of ref
 [observedMeas] = Measurements.FilterMeasLoadIn(yHist);
@@ -33,7 +50,7 @@ function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist
 
 
 % Set filter to loop over number of observations
-for i = 1:length(tVec)
+for i = 1:length(tOverall)
     
     if i == 1
         % first loop set up filter
@@ -49,16 +66,16 @@ for i = 1:length(tVec)
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     
     % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, [timePrev:tVec(i)], refState, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+    [T, TrajNom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, [timePrev:tOverall(i)], refState, odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
     
     % propagated stations in ECEF so rotate those states into ECI!
     
     % set previous time
-    timePrev = tVec(i);
+    timePrev = tOverall(i);
     
     end
     
-    timePrev = tVec(i);
+    timePrev = tOverall(i);
 
     
     % Extract the reference trajectory states
@@ -77,13 +94,13 @@ for i = 1:length(tVec)
     pMinus = STM * pPrev * STM';
     
     % determine if time aligns with observation
-    if ismember(tVec(i), obTime)
+    if ismember(tOverall(i), obsHist.time)
         
         % get index of observaiton
-        obInd = find(obTime == tVec(i));
+        obInd = find(obsHist.time == tOverall(i));
         
         % get station number 
-        statNumOb = obStat(obInd);
+        statNumOb = obsHist.statNo(obInd); 
         
         % each column is station
         Htilde{i} = Measurements.HtildeSCProj1(refTrajStates', stationECI{obInd,statNumOb}, statNumOb, MeasFlag);
