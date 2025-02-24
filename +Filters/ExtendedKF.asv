@@ -100,7 +100,6 @@ for i = 1:length(tVec)
     
     % determine station visibility
     [visibilityMask, viewingAngles, ~, obTime] = Measurements.VisibilityMask(stationPosECI(i,:), refPos', 10, tVec(i), 10);
-
     
     if ~isempty(obTime)
         % observation was made by a station
@@ -142,9 +141,11 @@ for i = 1:length(tVec)
             ObsMeasRange     = fullObsMeas(1:3);
             ObsMeasRangerate = fullObsMeas(4:6);
             
-            measDelta = [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - computedMeas;
+            measDelta = [ObsMeasRange(statNumOb(q)); ObsMeasRangerate(statNumOb(q))] - computedMeas;
         end
         
+        % If measureemnt residuals isn't an outlier than process it
+        if abs(measDelta(1)) < 1
         % Compute Htilde
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb(q)}, MeasFlag);
         
@@ -160,6 +161,8 @@ for i = 1:length(tVec)
         Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
         
         assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
+        
+        end
         
         end
         

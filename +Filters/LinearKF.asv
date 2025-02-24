@@ -120,15 +120,10 @@ for i = 1:length(tOverall)
         
         compMeas = [refRangeMeas; refRangeRateMeas];        
         
-        % measurements from all stations at time
-        fullObsMeas = observedMeas(i,:)';
-        
-        % range and range rate at time
-        ObsMeasRange     = fullObsMeas(1:3);
-        ObsMeasRangerate = fullObsMeas(4:6);
+        observedMeas(i,:);
         
         % pre-fit measurement residuals
-        measDelta = [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - compMeas;
+        measDelta = rmmissing()' - compMeas;
         
         % --- Kalman Gain
         Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
