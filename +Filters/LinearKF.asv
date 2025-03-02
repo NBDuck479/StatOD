@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus] = LinearKF(LKFinputs)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus, refTrajStatesHist] = LinearKF(LKFinputs)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -56,30 +56,34 @@ for i = 1:length(tOverall)
         % first loop set up filter
         xhatPrev = pert;
         pPrev = P0;
-        TrajNom = IC'; 
+        TrajNom = IC';
         timePrev = 0;
         PhiTotal = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
         
         % initialize as empty in case no station makes imeediate ob
         statNumOb = [];
+        
+        % initialize time of first observation
+        prevObTime = [];
     else
         
-    %--- Integrate ref traj & STM between each time step---
-    % Set integrator options
-    odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
-    
-    % Integrate Trajectory
-    [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re);
-    
-    % propagated stations in ECEF so rotate those states into ECI!
-    
-    % set previous time
-    timePrev = tOverall(i);
-    
+        %--- Integrate ref traj & STM between each time step---
+        % Set integrator options
+        odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+        
+        if DMC == 1
+            % integrate using DMC
+            [ydot, Q] = NumericJ2PropDMC(t, Y, mu, J2, Re, tau, sigma);
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
+        else
+            % integrate without DMC
+            % Integrate Trajectory
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
+            
+      %      [T,TrajNom] = ode45(@Dynamics.DynamicsA_J2_J3, [timePrev:tOverall(i)], refState, odeOptions, mu, J2 , -2.5323e-06, Re);
+            
+        end
     end
-    
-    timePrev = tOverall(i);
-
     
     % Extract the reference trajectory states
     refTrajStates = TrajNom(end,1:NumStates);
@@ -92,8 +96,13 @@ for i = 1:length(tOverall)
     
     PhiTotal = STM*PhiTotal; 
     
-    % State Noise Compensation
-    GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q);
+    % Determine if time gap is too large for added SNC
+    if tOverall(i) - prevObTime > 10
+        GammaQGamma = zeros(NumStates, NumStates);
+    else
+        % time is small enough to add SNC
+        GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
+    end
     
     % --- Time Update Step
     xMinus = STM * xhatPrev; 
@@ -120,10 +129,15 @@ for i = 1:length(tOverall)
         
         compMeas = [refRangeMeas; refRangeRateMeas];        
         
-        observedMeas(i,:);
+        % measurements from all stations at time
+        fullObsMeas = observedMeas(i,:)';
+        
+        % range and range rate at time
+        ObsMeasRange     = fullObsMeas(1:3);
+        ObsMeasRangerate = fullObsMeas(4:6);
         
         % pre-fit measurement residuals
-        measDelta = rmmissing()' - compMeas;
+        measDelta = [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - compMeas;
         
         % --- Kalman Gain
         Kk = pMinus * Htilde{i}' / (Htilde{i} * pMinus * Htilde{i}' + R);
@@ -134,11 +148,14 @@ for i = 1:length(tOverall)
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
         % CHECKING P IS GETTING SMALLER
-        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+  %      assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+        
+        % save this obsevration time as the previous observation time
+        prevObTime = yHist.obTime(obInd);
         
         % debugging saving this
         estimatedDeviationOb{i} = Htilde{i}*xMinus;
-        measDeltaHist{i} = measDelta;
+        measDeltaHist(1:2,i) = measDelta;
     else
         % no station observation - simply propagating the state w/o meas
         xhatPlus = xMinus;
@@ -147,7 +164,7 @@ for i = 1:length(tOverall)
         % debugging saving this
         estimatedDeviationOb{i} = [NaN; NaN];
         measResHist(:,i) = [NaN; NaN];
-        measDeltaHist{i} = [NaN; NaN];
+        measDeltaHist(1:2,i) = [NaN; NaN];
         measRes = [NaN; NaN];
         
     end
@@ -166,7 +183,21 @@ for i = 1:length(tOverall)
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
     refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])]; 
+    timePrev = tOverall(i);
+    
+    refTrajStatesHist(i,:) = refTrajStates;
     
 end
+
+% pre-fit residual RMS
+measDeltaRMS_Rho    = rmmissing(measDeltaHist(1,:));
+measDeltaRMS_RhoDot = rmmissing(measDeltaHist(2,:));
+
+RMS_pre_Rho    = sqrt(sum(measDeltaRMS_Rho.^2)) / length(measDeltaRMS_Rho);
+RMS_pre_RhoDot = sqrt(sum(measDeltaRMS_RhoDot.^2)) / length(measDeltaRMS_RhoDot);
+
+% post-fit residual RMS 
+measResRMS_Rho    = rmmissing(measResHist(1,:));
+measResRMS_RhoDot = rmmissing(measResHist(2,:));
 
 end

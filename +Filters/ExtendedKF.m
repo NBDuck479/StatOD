@@ -1,4 +1,4 @@
-function [XrefHist,PplusHist,measDeltaHist] = ExtendedKF(EKFinputs)
+function [XrefHist,PplusHist,measDeltaHist, post_fit_meas] = ExtendedKF(EKFinputs)
 
 %%%%%%%%%%% INPUTS: %%%%%%%%%%
 % X0:           [6 x 1] Initial Total State we'll propagate with + STM
@@ -55,14 +55,21 @@ for i = 1:length(tVec)
         pPrev = P0;
         timePrev = 0;
         
+        % Set time for last observation
+        obTimePrev = [];
+        
         % get initial phi 
-        phi = reshape(XrefPrev(6+1:end), [6,6]);
+        phi = reshape(XrefPrev(NumStates+1:end), [NumStates,NumStates]);
         
         % initial reference position
         refPos = XrefPrev(1:3);
         refVel = XrefPrev(4:6);
         
-        refTrajStates = [refPos', refVel'];
+        if DMC == 1
+            refTrajStates = [refPos', refVel', X0(7:9)'];
+        else
+            refTrajStates = [refPos', refVel'];
+        end
         
     else
         
@@ -70,26 +77,60 @@ for i = 1:length(tVec)
         % Set integrator options
         odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
         
-        % Integrate Trajectory
-        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re);
+        % Choose integration with or without DMC
+        if DMC == 1
+            % add the accel error to state
+            
+            
+            % integrate with DMC
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re, tau);
+
+            assert(NumStates == 9, 'wrong number of states for DMC')
+        else
+            % integrate without DMC 
+            % Integrate Trajectory
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re);
+        %    [T, TrajNom] = ode45(@Dynamics.DynamicsA_J2_J3, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, -2.5323e-06, Re);
+            assert(NumStates == 6, 'wrong number of states for no DMC')
+        end
         
         % Extract the reference trajectory states
-        refTrajStates = TrajNom(end,1:6);
+        refTrajStates = TrajNom(end,1:NumStates);
         
         % reference traj position
         refPos = refTrajStates(1:3);
         refVel = refTrajStates(4:6);
         
         % Extract the Integrated STM - this maps previous time to current time
-        phi = reshape(TrajNom(end,7:end), [6,6]);
+        phi = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
         
     end
     
-    % State Noise Compensation
-    GammaQGamma = Dynamics.StateNoiseComp(tVec(i) - timePrev, Q);
-    
-    % --- Time Update ---
-    pMinus = phi * pPrev * phi' + GammaQGamma;
+    % --- Time update --- 
+    if DMC == 1
+        % include DMC
+        % calculate Q 
+        Q = Dynamics.J2_DMC_Q_Matrix(tVec(i) - timePrev, tau, sigmaDMC);
+        
+        % --- Time Update
+        pMinus = phi * pPrev * phi' + Q;
+        
+    else
+        % Add SNC insteaf of DMC
+        if tVec(i) - obTimePrev < 15
+            % Add SNC because gap is small enough
+            
+            % State Noise Compensation
+            GammaQGamma = Dynamics.StateNoiseComp(tVec(i) - timePrev, Q, refTrajStates, Qframe);
+        else
+            % gap too big, don't add SNC
+            GammaQGamma = zeros(NumStates, NumStates);
+        end
+        
+        % --- Time Update ---
+        pMinus = phi * pPrev * phi' + GammaQGamma;
+        
+    end
     
     % --- Computed Measurements --- 
     % each station state
@@ -100,7 +141,6 @@ for i = 1:length(tVec)
     
     % determine station visibility
     [visibilityMask, viewingAngles, ~, obTime] = Measurements.VisibilityMask(stationPosECI(i,:), refPos', 10, tVec(i), 10);
-
     
     if ~isempty(obTime)
         % observation was made by a station
@@ -115,7 +155,7 @@ for i = 1:length(tVec)
             multiObs = 1; 
         end
         
-        for q = 1:multiObs
+        for q = 1:multiObs % ignore multiple obs for now
             
         % Computed measurement from the station!
         rangeMeasComp     = refPos - cell2mat(stationPosECI(i,statNumOb(q)))';
@@ -142,12 +182,22 @@ for i = 1:length(tVec)
             ObsMeasRange     = fullObsMeas(1:3);
             ObsMeasRangerate = fullObsMeas(4:6);
             
-            measDelta = [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - computedMeas;
+            measDelta = [ObsMeasRange(statNumOb(q)); ObsMeasRangerate(statNumOb(q))] - computedMeas;
+            
+        end
+
+        if measDelta(1) > 10
+        %    measDelta = [0;0]; 
         end
         
         % Compute Htilde
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb(q)}, MeasFlag);
         
+        if DMC == 1
+            % insert zeros to pad Htilde with DMC
+            Htilde{i} = [Htilde{i}, zeros(2,3)];
+        end
+            
         % Kalman Gain
         Kk = pMinus*Htilde{i}' / (Htilde{i}*pMinus*Htilde{i}' + R);
         
@@ -156,10 +206,17 @@ for i = 1:length(tVec)
         % reference state + deviation
         Xplus = refTrajStates' + xhat;
         
+        % Save off post fit residual - not needed for Filter computations
+        % though
+        post_fit_meas(1:2,i) = measDelta - Htilde{i} * xhat;
+        
         % covariance update
-        Pplus = (eye(6,6) - Kk*Htilde{i}) * pMinus * (eye(6,6) - Kk*Htilde{i})' + Kk*R*Kk';
+        Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
         assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
+        
+        % set previous observation time as last time an ob occured
+        obTimePrev = obTime;
         
         end
         
@@ -168,6 +225,7 @@ for i = 1:length(tVec)
         Xplus = refTrajStates';
         Pplus = pMinus;
         measDelta = [NaN; NaN];
+        post_fit_meas(1:2,i) = [NaN; NaN];
         
     end
     
@@ -178,10 +236,38 @@ for i = 1:length(tVec)
     measDeltaHist(:,i) = measDelta; 
     
     % reset everything for next iteration
-    XrefPrev = [Xplus; reshape(eye(6,6), [36,1])];
+    XrefPrev = [Xplus; reshape(eye(NumStates,NumStates), [NumStates^2,1])];
     pPrev    = Pplus;
     timePrev = tVec(i);
     
 end
+
+% print out final RMS values
+
+% pre-fit residual RMS
+measDeltaRMS_Rho    = rmmissing(measDeltaHist(1,:));
+measDeltaRMS_RhoDot = rmmissing(measDeltaHist(2,:));
+
+RMS_pre_Rho    = sqrt(sum(measDeltaRMS_Rho.^2)) / length(measDeltaRMS_Rho);
+RMS_pre_RhoDot = sqrt(sum(measDeltaRMS_RhoDot.^2)) / length(measDeltaRMS_RhoDot);
+
+% post-fit residual RMS 
+measResRMS_Rho    = rmmissing(post_fit_meas(1,:));
+measResRMS_RhoDot = rmmissing(post_fit_meas(2,:));
+
+RMS_post_Rho    = sqrt(sum(measResRMS_Rho.^2)) / length(measResRMS_Rho);
+RMS_post_RhoDot = sqrt(sum(measResRMS_RhoDot.^2)) / length(measResRMS_RhoDot);
+
+% Display the RMS residual results for the LKF
+    % print out what is happening
+    fprintf('--- Residual RMS info: ---\n');
+    fprintf('Pre-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_pre_Rho );
+    fprintf('RhoDot = %g km\n', RMS_pre_RhoDot );
+    fprintf('Post-fit residual RMS values\n');
+    fprintf('Rho    = %g km\n', RMS_post_Rho );
+    fprintf('RhoDot = %g km\n', RMS_post_RhoDot );
+
+    fprintf('\n---------------------------------------------\n\n');
 
 end
