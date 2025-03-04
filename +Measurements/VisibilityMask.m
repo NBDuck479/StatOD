@@ -1,4 +1,4 @@
-function [visibilityMask, viewingAngles] = VisibilityMask(stationPos, scPos, elevAngle, tSpan)
+function [visibilityMask, viewingAngles, statNumOb, obTime] = VisibilityMask(stationPos, scPos, elevAngle, currTime, deltaT)
 % This computes the visibilty mask for a given ground station via the
 % elevation angle of the spacecraft relative to the ground station.
 %
@@ -14,7 +14,15 @@ function [visibilityMask, viewingAngles] = VisibilityMask(stationPos, scPos, ele
 
 [~, numStations] = size(stationPos);
 
-for i = 1:length(tSpan)
+% Initialize - set these as empty for EKF
+viewingAngles = [];
+statNumOb = [];
+obTime = [];
+
+
+count = 1; 
+
+for i = 1:length(currTime)
     
     for j = 1:numStations
         
@@ -38,12 +46,22 @@ for i = 1:length(tSpan)
             % Store angles ground could see
             viewingAngles(i,j) = theta;
             
+            % which station made the observation 
+            % BREAKS DOWN IF MULTIPLE 
+            statNumOb(i,j) = j; 
+
+            % time of observation 
+            obTime(i) = currTime(i);
+             
+            
         else
             % Spacecraft is not high enough to be visible
             visibilityMask(i,j) = NaN;
             
             % no viewing angles
             viewingAngles(i,j) = NaN;
+            
+            statNumOb(i,j) = j; 
             
         end
         

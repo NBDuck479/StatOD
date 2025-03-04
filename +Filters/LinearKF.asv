@@ -73,7 +73,8 @@ for i = 1:length(tOverall)
         
         if DMC == 1
             % integrate using DMC
-            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, tau);
+            [ydot] = NumericJ2PropDMC(t, Y, mu, J2, Re, tau, sigma);
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
         else
             % integrate without DMC
             % Integrate Trajectory
@@ -98,19 +99,11 @@ for i = 1:length(tOverall)
     if DMC == 1
         % include DMC to time update
         
-        % Determine how long it's been since last observation
-        if tOverall(i) - prevObTime > 10
-            Q = zeros(NumStates, NumStates);
-       else
-            % calculate Q
-            Q = Dynamics.J2_DMC_Q_Matrix(tOverall(i) - timePrev, tau, sigmaDMC);
-        end
         
-        % --- Time Update
-        pMinus = STM * pPrev * STM' + Q;   
         
     else
         % Add SNC instead of DMC
+        
         
         % Determine if time gap is too large for added SNC
         if tOverall(i) - prevObTime > 10
@@ -141,10 +134,6 @@ for i = 1:length(tOverall)
         % each column is station
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb}, MeasFlag);
         
-        if DMC == 1
-            Htilde{i} = [Htilde{i}, zeros(2,3)];
-        end
-        
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
         
@@ -173,7 +162,7 @@ for i = 1:length(tOverall)
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
         % CHECKING P IS GETTING SMALLER
-     %   assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % save this obsevration time as the previous observation time
         prevObTime = yHist.obTime(obInd);

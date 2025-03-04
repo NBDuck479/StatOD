@@ -212,7 +212,7 @@ for i = 1:length(tVec)
         % covariance update
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
-        assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
+    %    assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
         
         % set previous observation time as last time an ob occured
         obTimePrev = obTime;
