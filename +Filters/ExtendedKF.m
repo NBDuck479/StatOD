@@ -79,8 +79,7 @@ for i = 1:length(tVec)
         
         % Choose integration with or without DMC
         if DMC == 1
-            % add the accel error to state
-            
+            % add the accel error to state   
             
             % integrate with DMC
             [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re, tau);
@@ -155,7 +154,7 @@ for i = 1:length(tVec)
             multiObs = 1; 
         end
         
-        for q = 1:multiObs % ignore multiple obs for now
+        for q = 1%:multiObs % ignore multiple obs for now
             
         % Computed measurement from the station!
         rangeMeasComp     = refPos - cell2mat(stationPosECI(i,statNumOb(q)))';

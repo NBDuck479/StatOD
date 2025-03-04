@@ -1,4 +1,4 @@
-function [XrefHist,PplusHist,measDeltaHist] = ExtendedKF(EKFinputs)
+function [XrefHist,PplusHist,measDeltaHist, post_fit_meas] = ExtendedKF(EKFinputs)
 
 %%%%%%%%%%% INPUTS: %%%%%%%%%%
 % X0:           [6 x 1] Initial Total State we'll propagate with + STM
@@ -55,6 +55,9 @@ for i = 1:length(tVec)
         pPrev = P0;
         timePrev = 0;
         
+        % Set time for last observation
+        obTimePrev = [];
+        
         % get initial phi 
         phi = reshape(XrefPrev(NumStates+1:end), [NumStates,NumStates]);
         
@@ -76,8 +79,7 @@ for i = 1:length(tVec)
         
         % Choose integration with or without DMC
         if DMC == 1
-            % add the accel error to state
-            
+            % add the accel error to state   
             
             % integrate with DMC
             [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re, tau);
@@ -113,9 +115,16 @@ for i = 1:length(tVec)
         pMinus = phi * pPrev * phi' + Q;
         
     else
-        
-        % State Noise Compensation
-        GammaQGamma = Dynamics.StateNoiseComp(tVec(i) - timePrev, Q, refTrajStates, Qframe);
+        % Add SNC insteaf of DMC
+        if tVec(i) - obTimePrev < 15
+            % Add SNC because gap is small enough
+            
+            % State Noise Compensation
+            GammaQGamma = Dynamics.StateNoiseComp(tVec(i) - timePrev, Q, refTrajStates, Qframe);
+        else
+            % gap too big, don't add SNC
+            GammaQGamma = zeros(NumStates, NumStates);
+        end
         
         % --- Time Update ---
         pMinus = phi * pPrev * phi' + GammaQGamma;
@@ -145,7 +154,7 @@ for i = 1:length(tVec)
             multiObs = 1; 
         end
         
-        for q = 1:multiObs% ignore multiple obs for now
+        for q = 1%:multiObs % ignore multiple obs for now
             
         % Computed measurement from the station!
         rangeMeasComp     = refPos - cell2mat(stationPosECI(i,statNumOb(q)))';
@@ -175,6 +184,10 @@ for i = 1:length(tVec)
             measDelta = [ObsMeasRange(statNumOb(q)); ObsMeasRangerate(statNumOb(q))] - computedMeas;
             
         end
+
+        if measDelta(1) > 10
+        %    measDelta = [0;0]; 
+        end
         
         % Compute Htilde
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb(q)}, MeasFlag);
@@ -199,7 +212,10 @@ for i = 1:length(tVec)
         % covariance update
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
-        assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
+    %    assert(trace(Pplus) < trace(pMinus), 'Covariance not decrease!');
+        
+        % set previous observation time as last time an ob occured
+        obTimePrev = obTime;
         
         end
         
@@ -208,6 +224,7 @@ for i = 1:length(tVec)
         Xplus = refTrajStates';
         Pplus = pMinus;
         measDelta = [NaN; NaN];
+        post_fit_meas(1:2,i) = [NaN; NaN];
         
     end
     

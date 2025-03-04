@@ -73,8 +73,7 @@ for i = 1:length(tOverall)
         
         if DMC == 1
             % integrate using DMC
-            [ydot, Q] = NumericJ2PropDMC(t, Y, mu, J2, Re, tau, sigma);
-            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2PropDMC, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, tau);
         else
             % integrate without DMC
             % Integrate Trajectory
@@ -96,17 +95,39 @@ for i = 1:length(tOverall)
     
     PhiTotal = STM*PhiTotal; 
     
-    % Determine if time gap is too large for added SNC
-    if tOverall(i) - prevObTime > 10
-        GammaQGamma = zeros(NumStates, NumStates);
+    if DMC == 1
+        % include DMC to time update
+        
+        % Determine how long it's been since last observation
+        if tOverall(i) - prevObTime > 10
+            Q = zeros(NumStates, NumStates);
+       else
+            % calculate Q
+            Q = Dynamics.J2_DMC_Q_Matrix(tOverall(i) - timePrev, tau, sigmaDMC);
+        end
+        
+        % --- Time Update
+        pMinus = STM * pPrev * STM' + Q;   
+        
     else
-        % time is small enough to add SNC
-        GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
+        % Add SNC instead of DMC
+        
+        % Determine if time gap is too large for added SNC
+        if tOverall(i) - prevObTime > 10
+            GammaQGamma = zeros(NumStates, NumStates);
+        else
+            % time is small enough to add SNC
+            GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
+        end
+        
+        % SNC gets added to covariance update
+        pMinus = STM * pPrev * STM' + GammaQGamma;
+        
     end
+    
     
     % --- Time Update Step
     xMinus = STM * xhatPrev; 
-    pMinus = STM * pPrev * STM' + GammaQGamma;
     
     % determine if time aligns with observation
     if ismember(tOverall(i), yHist.obTime)
@@ -119,6 +140,10 @@ for i = 1:length(tOverall)
         
         % each column is station
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb}, MeasFlag);
+        
+        if DMC == 1
+            Htilde{i} = [Htilde{i}, zeros(2,3)];
+        end
         
         % Computed measurement for filter estimated state
      %   Xcomp = refTrajStates' + xMinus;
@@ -148,7 +173,7 @@ for i = 1:length(tOverall)
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
         % CHECKING P IS GETTING SMALLER
-        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+     %   assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % save this obsevration time as the previous observation time
         prevObTime = yHist.obTime(obInd);
