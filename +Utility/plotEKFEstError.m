@@ -3,14 +3,14 @@ function [fig, EKFesterr] = plotEKFEstError(PplusHist, XrefHist, refPos, refVel,
     PplusHistMat = cell2mat(PplusHist);
 
     % Get each state uncertainty
-    stateUncert = cell(9, 1);
-    for i = 1:9
-        stateUncert{i} = PplusHistMat(i, i:9:end);
+    stateUncert = cell(6, 1);
+    for i = 1:6
+        stateUncert{i} = PplusHistMat(i, i:6:end);
     end
 
     % Calculate 3 sigma bounds for each state
-    threeSigmaState = cell(9, 1);
-    for i = 1:9
+    threeSigmaState = cell(6, 1);
+    for i = 1:6
         threeSigmaState{i} = 3 * sqrt(stateUncert{i});
     end
 
