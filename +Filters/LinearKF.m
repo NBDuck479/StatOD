@@ -1,4 +1,4 @@
-function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covPlus, refTrajStatesHist] = LinearKF(LKFinputs)
+function [xhist, measResHist, measDeltaHist, estimatedDeviationOb, statNumObHist, covMins, covPlus, refTrajStatesHist, STMhist, PhiTotal] = LinearKF(LKFinputs)
 
 %%%%%%%%%%%%%% INPUTS: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % IC:           [6 x 1] Initial Total State condition that we'll propagate with
@@ -79,7 +79,7 @@ for i = 1:length(tOverall)
             % Integrate Trajectory
             [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
             
-      %      [T,TrajNom] = ode45(@Dynamics.DynamicsA_J2_J3, [timePrev:tOverall(i)], refState, odeOptions, mu, J2 , -2.5323e-06, Re);
+            %      [T,TrajNom] = ode45(@Dynamics.DynamicsA_J2_J3, [timePrev:tOverall(i)], refState, odeOptions, mu, J2 , -2.5323e-06, Re);
             
         end
     end
@@ -93,7 +93,7 @@ for i = 1:length(tOverall)
     % reshapre the STM
     STM = reshape(phi, [NumStates,NumStates]);
     
-    PhiTotal = STM*PhiTotal; 
+    PhiTotal = STM*PhiTotal;
     
     if DMC == 1
         % include DMC to time update
@@ -101,13 +101,13 @@ for i = 1:length(tOverall)
         % Determine how long it's been since last observation
         if tOverall(i) - prevObTime > 10
             Q = zeros(NumStates, NumStates);
-       else
+        else
             % calculate Q
             Q = Dynamics.J2_DMC_Q_Matrix(tOverall(i) - timePrev, tau, sigmaDMC);
         end
         
         % --- Time Update
-        pMinus = STM * pPrev * STM' + Q;   
+        pMinus = STM * pPrev * STM' + Q;
         
     else
         % Add SNC instead of DMC
@@ -127,16 +127,21 @@ for i = 1:length(tOverall)
     
     
     % --- Time Update Step
-    xMinus = STM * xhatPrev; 
+    xMinus = STM * xhatPrev;
     
     % determine if time aligns with observation
     if ismember(tOverall(i), yHist.obTime)
         
-        % get index of observaiton
-        obInd = find(yHist.obTime == tOverall(i));
+        % - find indices of where the times match
         
-        % get station number 
-        statNumOb = yHist.statNo(i); 
+        % Loop over each element of tOverall and find the matching indices
+        % Find indices where tOverall(i) matches elements in yHist.obTime
+        [row, col] = find(yHist.obTime == tOverall(i));
+        
+        % the row is the index that matches with time
+        obInd = row;
+        % the column is the station number
+        statNumOb = col;
         
         % each column is station
         Htilde{i} = Measurements.HtildeSC(refTrajStates', stationECI{i,statNumOb}, MeasFlag);
@@ -146,13 +151,13 @@ for i = 1:length(tOverall)
         end
         
         % Computed measurement for filter estimated state
-     %   Xcomp = refTrajStates' + xMinus;
+        %   Xcomp = refTrajStates' + xMinus;
         
         % calcualte the computed measurements
         refRangeMeas     = yHistRef.Range(i,statNumOb);
         refRangeRateMeas = yHistRef.RangeRate(i,statNumOb);
         
-        compMeas = [refRangeMeas; refRangeRateMeas];        
+        compMeas = [refRangeMeas; refRangeRateMeas];
         
         % measurements from all stations at time
         fullObsMeas = observedMeas(i,:)';
@@ -173,7 +178,7 @@ for i = 1:length(tOverall)
         Pplus = (eye(NumStates,NumStates) - Kk*Htilde{i}) * pMinus * (eye(NumStates,NumStates) - Kk*Htilde{i})' + Kk*R*Kk';
         
         % CHECKING P IS GETTING SMALLER
-     %   assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
+        assert(trace(Pplus) < trace(pMinus), 'Trace of P is not getting smaller');
         
         % save this obsevration time as the previous observation time
         prevObTime = yHist.obTime(obInd);
@@ -199,6 +204,7 @@ for i = 1:length(tOverall)
     measResHist(:,i) = measRes;
     covMins{i} = pMinus;
     covPlus{i} = Pplus;
+    STMhist{i} = STM;
     if isempty(statNumOb)
         statNumOb = 0;
     end
@@ -207,7 +213,7 @@ for i = 1:length(tOverall)
     % update variables for next go around
     xhatPrev = xhatPlus;
     pPrev    = Pplus;
-    refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])]; 
+    refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])];
     timePrev = tOverall(i);
     
     refTrajStatesHist(i,:) = refTrajStates;
@@ -221,7 +227,7 @@ measDeltaRMS_RhoDot = rmmissing(measDeltaHist(2,:));
 RMS_pre_Rho    = sqrt(sum(measDeltaRMS_Rho.^2)) / length(measDeltaRMS_Rho);
 RMS_pre_RhoDot = sqrt(sum(measDeltaRMS_RhoDot.^2)) / length(measDeltaRMS_RhoDot);
 
-% post-fit residual RMS 
+% post-fit residual RMS
 measResRMS_Rho    = rmmissing(measResHist(1,:));
 measResRMS_RhoDot = rmmissing(measResHist(2,:));
 
@@ -229,15 +235,15 @@ RMS_post_Rho    = sqrt(sum(measResRMS_Rho.^2)) / length(measResRMS_Rho);
 RMS_post_RhoDot = sqrt(sum(measResRMS_RhoDot.^2)) / length(measResRMS_RhoDot);
 
 % Display the RMS residual results for the LKF
-    % print out what is happening
-    fprintf('--- Residual RMS info: ---\n');
-    fprintf('Pre-fit residual RMS values\n');
-    fprintf('Rho    = %g km\n', RMS_pre_Rho );
-    fprintf('RhoDot = %g km\n', RMS_pre_RhoDot );
-    fprintf('Post-fit residual RMS values\n');
-    fprintf('Rho    = %g km\n', RMS_post_Rho );
-    fprintf('RhoDot = %g km\n', RMS_post_RhoDot );
+% print out what is happening
+fprintf('--- Residual RMS info: ---\n');
+fprintf('Pre-fit residual RMS values\n');
+fprintf('Rho    = %g km\n', RMS_pre_Rho );
+fprintf('RhoDot = %g km\n', RMS_pre_RhoDot );
+fprintf('Post-fit residual RMS values\n');
+fprintf('Rho    = %g km\n', RMS_post_Rho );
+fprintf('RhoDot = %g km\n', RMS_post_RhoDot );
 
-    fprintf('\n---------------------------------------------\n\n');
+fprintf('\n---------------------------------------------\n\n');
 
 end

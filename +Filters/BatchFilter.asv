@@ -168,7 +168,7 @@ while j < iterations
     XrefPrev(1:NumStates) = XrefPrev(1:NumStates) + xhat0est;
     
     % Linearized post-fits Only Loop over Observation Times!
-    for k = 1:obInd
+    for k = 1:length(tOverall)
         % get STM at each step
         STM = reshape(TrajNom(k, NumStates+1:end), [NumStates, NumStates]);
         
