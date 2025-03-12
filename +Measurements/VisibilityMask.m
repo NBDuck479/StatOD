@@ -51,7 +51,7 @@ for i = 1:length(currTime)
             statNumOb(i,j) = j; 
 
             % time of observation 
-            obTime(i) = currTime(i);
+            obTime(i,j) = currTime(i);
              
             
         else
@@ -62,6 +62,9 @@ for i = 1:length(currTime)
             viewingAngles(i,j) = NaN;
             
             statNumOb(i,j) = j; 
+            
+            % time of observation 
+            obTime(i,j) = NaN;
             
         end
         
