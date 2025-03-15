@@ -1,4 +1,4 @@
-function [ydot] = NumericJ2Prop(t, Y, mu, J2, Re, DMC)
+function [ydot] = NumericJ2Prop(t, Y, mu, J2, Re)
 % This function can propagate the state and STM due to the effects of 2
 % body and J2 gravitaional dynamics. The code can determine if the STM
 % wants to be propagated and if J2 is an added state just by looking at

@@ -117,7 +117,7 @@ for i = 1:length(tOverall)
             GammaQGamma = zeros(NumStates, NumStates);
         else
             % time is small enough to add SNC
-            GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
+            [GammaQGamma, ~] = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
         end
         
         % SNC gets added to covariance update
