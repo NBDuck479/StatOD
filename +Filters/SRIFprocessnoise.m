@@ -1,4 +1,4 @@
-function [xhat, P, eps, epsNonWhite] = SRIF(SRIFinputs)
+function [xhat, P] = SRIFprocessnoise(SRIFinputs)
 % This function implements a square root information filter 
 % Similar structure to LKF
 % 
@@ -36,12 +36,9 @@ end
 [observedMeas] = Measurements.FilterMeasLoadIn(yHist);
 
 % if process noise then compute square root 
-if processNoise == 1
     % chol of Q 
-    cholQ = chol(Q);
-    Ru = inv(cholQ);
-    
-end
+    Ru = chol(Q);
+
 
 % --- SRIF algorithm --- 
 % Notation
@@ -57,14 +54,14 @@ for k = 1:length(tOverall)
         TrajNom = IC'; 
         timePrev = 0; 
         % - Given P0 and x0 to start 
-        cholP0 = chol(P0); 
-        Rprev = inv(cholP0);
+        Rprev = chol(P0); 
+        cholP0Inv = inv(Rprev);
         
         bPrev = Rprev * xhatPrev; 
     else
         % integrate reference trajectory at each time step
         odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
-        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(k)], refState, odeOptions, mu, J2, Re);
+        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re);
     end
     
     % Extract the reference trajectory states
@@ -80,37 +77,25 @@ for k = 1:length(tOverall)
     % reshape the STM
     STM = reshape(phi, [NumStates,NumStates]);
     
+    % try out a measurement update 
+    measUpd = []
+    Transformation.HouseHolder
+    
+    
     % --- Time Update --- 
-    RbarMinus = Rprev * inv(STM); 
     xhatMinus = STM * xhatPrev;
-        
-    if processNoise == 1 && tOverall(k)-timePrev <20
-        % ---- Process Noise Time Update
-        [GammaQGamma, Gamma] = Dynamics.StateNoiseComp(tOverall(k)-timePrev, Q, refTrajStates, Qframe);
-        
-        updateMat = [Ru zeros(3,NumStates) zeros(3,1); -RbarMinus*Gamma RbarMinus bPrev];
-        updTrans = Transformation.HouseHolder(updateMat);
-        
-        % pull out the updates
-        Rbar = updTrans(4:end, 4:end-1);
-        bBar = updTrans(4:end, end);
-        
-        % extras for process noise
-        %         RbarUk = updTrans(1:3, 1:NumStates);
-        %         RbarUxk = updTrans(1:3, NumStates+1:2*NumStates+1);
-        %         bTildeUk = updTrans(1:3, end);
-    else
-        
-        % Householder for time update
-         updateMat = [RbarMinus bPrev];
-         updTrans = Transformation.HouseHolder(updateMat);
-         
-         % Time updated R and b
-         Rbar = updTrans(1:NumStates, 1:NumStates);
-        bBar = updTrans(1:NumStates, end);
+    RbarMinus = Rprev \ STM; 
 
-    end
-        
+    % Householder for time update
+    updateMat = [RbarMinus bPrev];
+    updTrans = Transformation.HouseHolder(updateMat);
+    
+    % Time updated R and b 
+    Rbar = updTrans(1:NumStates, 1:NumStates);
+    bBar = updTrans(1:NumStates, end);
+    
+  %  bMinus = bPrev; % b does not change with time Update
+    
     % Determine if time aligns with an observation 
     if ismember(tOverall(k), yHist.obTime)
         
@@ -129,10 +114,11 @@ for k = 1:length(tOverall)
         stationPosECI = stationState(1:3);
         stationVelECI = stationState(4:6);
         
+        
         % each column is station
         Htilde{k} = Measurements.HtildeSC(refTrajStates', stationState, MeasFlag);
         
-        % White the sensed matrix H 
+        % INVERSE OF V IS MASSIVE AND BLOWING THINGS UP!!!!
         HtildeWhite = inv(V) * Htilde{k};
         
         % --- Calculate Computed measurement
@@ -151,10 +137,10 @@ for k = 1:length(tOverall)
         ObsMeasRangerate = ObsMeas(4:6);
         
         % whitened measurement
-     %   yWhite = inv(V) * [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)];
+        yWhite = inv(V) * [ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)];
         
         % Observed - Commputed 
-        yWhite = inv(V)*([ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - computedMeas);
+    %    y(:,k) = inv(V)*([ObsMeasRange(statNumOb); ObsMeasRangerate(statNumOb)] - computedMeas);
         
         % --- Measurement Update
         dataMatrix = [Rbar  bBar; HtildeWhite yWhite];
@@ -172,8 +158,6 @@ for k = 1:length(tOverall)
         % post error - should be [0,1]
         eps(:,k) = yWhite - HtildeWhite * xhat(:,k);
         
-        epsNonWhite(:,k) = V *(yWhite - HtildeWhite * xhat(:,k));
-        
         
         % reset everything to go back for next iteration 
         Rprev = Rk; 
@@ -187,11 +171,8 @@ for k = 1:length(tOverall)
         xhatPrev = xhatMinus;
         Rprev = RbarMinus;
         bPrev = bBar;
-        P{k} = inv(Rk) * inv(Rk)';
-        xhat(:,k) = xhatMinus;
     end
     % Update for next go around
-    timePrev = tOverall(k);
     refState = [refTrajStates'; reshape(eye(NumStates,NumStates), [NumStates^2,1])];
 end
         
