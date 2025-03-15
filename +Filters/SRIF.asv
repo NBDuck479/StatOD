@@ -38,9 +38,7 @@ end
 % if process noise then compute square root 
 if processNoise == 1
     % chol of Q 
-    cholQ = chol(Q);
-    Ru = inv(cholQ);
-    
+    Ru = chol(Q);
 end
 
 % --- SRIF algorithm --- 
@@ -109,7 +107,9 @@ for k = 1:length(tOverall)
         Rbar = updTrans(1:NumStates, 1:NumStates);
         bBar = updTrans(1:NumStates, end);
     end
-        
+    
+  %  bMinus = bPrev; % b does not change with time Update
+    
     % Determine if time aligns with an observation 
     if ismember(tOverall(k), yHist.obTime)
         
@@ -127,6 +127,7 @@ for k = 1:length(tOverall)
         stationState = stationECI{k,statNumOb};
         stationPosECI = stationState(1:3);
         stationVelECI = stationState(4:6);
+        
         
         % each column is station
         Htilde{k} = Measurements.HtildeSC(refTrajStates', stationState, MeasFlag);
