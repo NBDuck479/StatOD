@@ -77,7 +77,7 @@ for i = 1:length(tOverall)
         else
             % integrate without DMC
             % Integrate Trajectory
-            [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re, DMC);
+            [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev:tOverall(i)], refState, odeOptions, mu, J2, Re);
             
             %      [T,TrajNom] = ode45(@Dynamics.DynamicsA_J2_J3, [timePrev:tOverall(i)], refState, odeOptions, mu, J2 , -2.5323e-06, Re);
             
@@ -117,7 +117,7 @@ for i = 1:length(tOverall)
             GammaQGamma = zeros(NumStates, NumStates);
         else
             % time is small enough to add SNC
-            GammaQGamma = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
+            [GammaQGamma, ~] = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, refTrajStates, Qframe);
         end
         
         % SNC gets added to covariance update

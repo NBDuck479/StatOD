@@ -1,4 +1,4 @@
-function [GammaQGamma] = StateNoiseComp(deltaT, Q, scState, Qframe)
+function [GammaQGamma, Gamma] = StateNoiseComp(deltaT, Q, scState, Qframe)
 % Computes the State Noise compenstation for the Filter
 % This assumes the state has 6 parameters
 %
