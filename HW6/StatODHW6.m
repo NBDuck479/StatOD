@@ -54,4 +54,4 @@ UKFinputs.B                 = 2;
 % UKFinputs.Qframe            = 'ECI';
 % UKFinputs.processNoise      = 1; 
 
-
+[x] = Filters.UnscentedKF(UKFinputs)

@@ -1,4 +1,4 @@
-function [] = UnscentedKF(UKFinputs)
+function [x] = UnscentedKF(UKFinputs)
 % This implements a UKF for state esimtation also known as a sigma point
 % filter.
 % It does a really good job with estimating the second moment (covariance)
@@ -59,7 +59,7 @@ for i = 1:length(tOverall)
     if i == 1
         % set filter initial conditions
         XrefPrev = X0;
-        sqrtPprev = chol(P0);
+        sqrtPprev = sqrtm(P0);
         timePrev = 0;
         
         % Set time for last observation
@@ -77,17 +77,18 @@ for i = 1:length(tOverall)
         % Set integrator options
         odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
         [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re);
+        
+        
+        % Extract the reference trajectory states
+        refTrajStates = TrajNom(end,1:NumStates);
+        
+        % reference traj position
+        refPos = refTrajStates(1:3);
+        refVel = refTrajStates(4:6);
+        
+        % Extract the Integrated STM - this maps previous time to current time
+        phi = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
     end
-    
-    % Extract the reference trajectory states
-    refTrajStates = TrajNom(end,1:NumStates);
-    
-    % reference traj position
-    refPos = refTrajStates(1:3);
-    refVel = refTrajStates(4:6);
-    
-    % Extract the Integrated STM - this maps previous time to current time
-    phi = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
     
     % --- Compute Sigma Points
     chiPrev = [XrefPrev, XrefPrev+gamma*sqrtPprev, XrefPrev+gamma*sqrtPprev];
