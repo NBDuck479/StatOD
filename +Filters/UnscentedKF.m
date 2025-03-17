@@ -1,4 +1,5 @@
 function [x] = UnscentedKF(UKFinputs)
+
 % This implements a UKF for state esimtation also known as a sigma point
 % filter.
 % It does a really good job with estimating the second moment (covariance)
@@ -88,16 +89,17 @@ for i = 1:length(tOverall)
         
         % Extract the Integrated STM - this maps previous time to current time
         phi = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
+        
     end
     
     % --- Compute Sigma Points
-    chiPrev = [XrefPrev, XrefPrev+gamma*sqrtPprev, XrefPrev+gamma*sqrtPprev];
+    chiPrev = [XrefPrev(1:NumStates), XrefPrev(1:NumStates)+gamma*sqrtPprev, XrefPrev(1:NumStates)+gamma*sqrtPprev];
     
     % --- Propagate Sigma Points ---
     % Set integrator options
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
     for SigPt = 1:2*L+1
-        [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], chiPrev(SigPt), odeOptions, mu, J2, Re);
+        [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], chiPrev(SigPt), odeOptions, mu, J2, Re);
         
         % Save the propagated Sigma points 
         chiMinus(SigPt,:) = propSigmaPt(end,:); 

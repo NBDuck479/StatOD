@@ -26,7 +26,7 @@ end
 
     % Create hours array based on the observation times
     [overlapTimeIdn, ~] = ismember(simuTime, obTime);
-    hours = [1:1:18340] / 60 / 60;
+    hours = [1:1:length(simuTime)] / 60 / 60;
 
     % Initialize arrays for residuals
     fillsumTracePos = NaN(1, 18341);
