@@ -77,9 +77,8 @@ for i = 1:length(tOverall)
         % --- Integrate Reference Traj ---
         % Set integrator options
         odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
-        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re);
-        
-        
+        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], XrefPrev, odeOptions, mu, J2, Re);
+              
         % Extract the reference trajectory states
         refTrajStates = TrajNom(end,1:NumStates);
         
@@ -93,46 +92,56 @@ for i = 1:length(tOverall)
     end
     
     % --- Compute Sigma Points
-    chiPrev = [XrefPrev(1:NumStates), XrefPrev(1:NumStates)+gamma*sqrtPprev, XrefPrev(1:NumStates)+gamma*sqrtPprev];
+    chiPrev = [XrefPrev(1:NumStates), XrefPrev(1:NumStates)+gamma*sqrtPprev, XrefPrev(1:NumStates)-gamma*sqrtPprev];
     
     % --- Propagate Sigma Points ---
     % Set integrator options
-    odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
-    for SigPt = 1:2*L+1
-        [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], chiPrev(SigPt), odeOptions, mu, J2, Re);
-        
-        % Save the propagated Sigma points 
-        chiMinus(SigPt,:) = propSigmaPt(end,:); 
+    if i ~= 1
+        odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+        for SigPt = 1:2*L+1
+            [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], chiPrev(SigPt), odeOptions, mu, J2, Re);
+            
+            % Save the propagated Sigma points
+            chiMinus(SigPt,:) = propSigmaPt(end,:);
+        end
+    else
+        % if time 0 then no sigma point propagation 
+        chiMinus = chiPrev;
     end
     
     % --- Time update ---
-    weightedSigmaPt = [];
-    Xprev           = [];
-    CovNoPNloop         = [];
+    weightedSigmaPt = zeros(NumStates,1);
+    Xprev           = zeros(NumStates,1);
+    CovNoPNloop     = zeros(NumStates,NumStates);
+    CovNoPN         = zeros(NumStates,NumStates); 
     
     % For loop State Time Update
     for q = 1:2*L+1
         % Loop over each sigma point q for State
-        weightedSigmaPt = Wm(q) * chiMinus(q);
+        weightedSigmaPt = Wm(q) * chiMinus(:,q);
         
         % Summation
         Xprev = weightedSigmaPt + Xprev;
         
         % Loop each sigma point for covariance
-        CovNoPNloop = Wc(q) * (chiMinus(q) - Xprev) * (chiMinus(q) - Xprev)';
+        CovNoPNloop = Wc(q) * (chiMinus(:,q) - Xprev) * (chiMinus(:,q) - Xprev)';
         
         % Summation
         CovNoPN = CovNoPN + CovNoPNloop;
     end
     
+    % No Process Noise for now
+    Q_s = zeros(NumStates, NumStates);
     % Covariance Update with process noise
     Pprev = Q_s + CovNoPN; 
 
     % --- Recompute Sigma Points after Propagation
-    ChiMinusProp = [Xprev, Xprev+gamma*chol(Pprev), Xprev-gamma*chol(Pprev)]; 
+    ChiMinusProp = [Xprev, Xprev+gamma*sqrtm(Pprev), Xprev-gamma*sqrtm(Pprev)]; 
     
     
     % Computed Measurements (predicted) for each sigma point
+    
+    [computedMeas] = Measurements.ComputeFilterMeasurements(stationECI, i, statNumOb, refPos, refVel, iter)
     
         % --- Calculate Computed measurement
         rangeMeasComp     = refPos - stationPosECI';
