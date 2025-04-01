@@ -104,8 +104,12 @@ for i = 2:length(tOverall)
         CovNoPN = CovNoPN + CovNoPNloop;
     end
     
-    % No Process Noise for now!!
-    Q_s = zeros(NumStates, NumStates);
+    % State Noise Compensation
+    if tOverall(i) - obTimePrev < 15
+        [Q_s, Gamma] = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, 0, Qframe);
+    else
+        Q_s = zeros(NumStates, NumStates);
+    end
     
     % Covariance Update with process noise
     Pprev = Q_s + CovNoPN;
@@ -165,6 +169,9 @@ for i = 2:length(tOverall)
         
         % save off residual 
         OminusC(:,i) = ObMeasurement - meanPredMeas;
+        
+        % set previous observation time 
+        obTimePrev = tOverall(i);
         
     else
         % No observation at this time
