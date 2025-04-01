@@ -1,4 +1,5 @@
-function [] = UnscentedKF(UKFinputs)
+function [Xhist, Phist, OminusC] = UnscentedKF(UKFinputs)
+
 % This implements a UKF for state esimtation also known as a sigma point
 % filter.
 % It does a really good job with estimating the second moment (covariance)
@@ -42,102 +43,151 @@ gamma   = sqrt(L+lambda);
 
 % Weight for Mean and Covariance
 Wm(1) = lambda / (L+lambda);
-Wc(1) = lambda / (L+lambda) + (1 - a^2 + B);
+Wc(1) = (lambda / (L+lambda)) + (1 - a^2 + B);
 
 % add weights for other sigma points
 for j = 2:2*L+1
     Wm(j) = 1 / (2*(L+lambda));
-    Wc(j) = 1 / (2*(L+lambda)); 
+    Wc(j) = 1 / (2*(L+lambda));
 end
 
 % weights for mean must be 1
 assert(.999 < sum(Wm) < 1.0001, 'Weights of mean sigma points must be 1')
 
+% --- Initialize outside of Filter
+% set filter initial conditions
+Xprev = X0;
+sqrtPprev = sqrtm(P0);
+timePrev = 0;
+
+% Set time for last observation
+obTimePrev = [];
+
 % Set filter to loop over number of observations
-for i = 1:length(tOverall)
-    
-    if i == 1
-        % set filter initial conditions
-        XrefPrev = X0;
-        sqrtPprev = chol(P0);
-        timePrev = 0;
-        
-        % Set time for last observation
-        obTimePrev = [];
-        
-        % get initial phi
-        phi = reshape(XrefPrev(NumStates+1:end), [NumStates,NumStates]);
-        
-        % initial reference position
-        refPos = XrefPrev(1:3);
-        refVel = XrefPrev(4:6);
-        
-    else
-        % --- Integrate Reference Traj ---
-        % Set integrator options
-        odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
-        [T, TrajNom] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tVec(i)], XrefPrev, odeOptions, mu, J2, Re);
-        
-        
-        % Extract the reference trajectory states
-        refTrajStates = TrajNom(end,1:NumStates);
-        
-        % reference traj position
-        refPos = refTrajStates(1:3);
-        refVel = refTrajStates(4:6);
-        
-        % Extract the Integrated STM - this maps previous time to current time
-        phi = reshape(TrajNom(end,NumStates+1:end), [NumStates,NumStates]);
-        
-    end
+for i = 2:length(tOverall)
     
     % --- Compute Sigma Points
-    chiPrev = [XrefPrev(1:NumStates), XrefPrev(1:NumStates)+gamma*sqrtPprev, XrefPrev(1:NumStates)+gamma*sqrtPprev];
+    % Use previous time step results
+    chiPrev = [Xprev(1:NumStates), Xprev(1:NumStates)+gamma*sqrtPprev, Xprev(1:NumStates)-gamma*sqrtPprev];
     
     % --- Propagate Sigma Points ---
     % Set integrator options
     odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+    
     for SigPt = 1:2*L+1
-        [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], chiPrev(SigPt), odeOptions, mu, J2, Re);
+        [T, propSigmaPt] = ode45(@Dynamics.NumericJ2Prop, [timePrev,tOverall(i)], chiPrev(:,SigPt), odeOptions, mu, J2, Re);
         
-        % Save the propagated Sigma points 
-        chiMinus(SigPt,:) = propSigmaPt(end,:); 
+        % Save the propagated Sigma points
+        chiMinus(SigPt,:) = propSigmaPt(end,:);
     end
     
     % --- Time update ---
-    weightedSigmaPt = [];
-    Xprev           = [];
-    CovNoPNloop         = [];
+    weightedSigmaPt = zeros(NumStates,1);
+    Xprev           = zeros(NumStates,1);
+    CovNoPNloop     = zeros(NumStates,NumStates);
+    CovNoPN         = zeros(NumStates,NumStates);
     
     % For loop State Time Update
     for q = 1:2*L+1
         % Loop over each sigma point q for State
-        weightedSigmaPt = Wm(q) * chiMinus(q);
+        weightedSigmaPt = Wm(q) * chiMinus(q,:);
         
         % Summation
-        Xprev = weightedSigmaPt + Xprev;
-        
+        Xprev = weightedSigmaPt' + Xprev;
+    end
+    
+    for w = 1:2*L+1
         % Loop each sigma point for covariance
-        CovNoPNloop = Wc(q) * (chiMinus(q) - Xprev) * (chiMinus(q) - Xprev)';
+        CovNoPNloop = Wc(w) * (chiMinus(w,:)' - Xprev) * (chiMinus(w,:)' - Xprev)';
         
         % Summation
         CovNoPN = CovNoPN + CovNoPNloop;
     end
     
+    % State Noise Compensation
+    if tOverall(i) - obTimePrev < 15
+        [Q_s, Gamma] = Dynamics.StateNoiseComp(tOverall(i) - timePrev, Q, 0, Qframe);
+    else
+        Q_s = zeros(NumStates, NumStates);
+    end
+    
     % Covariance Update with process noise
-    Pprev = Q_s + CovNoPN; 
-
-    % --- Recompute Sigma Points after Propagation
-    ChiMinusProp = [Xprev, Xprev+gamma*chol(Pprev), Xprev-gamma*chol(Pprev)]; 
+    Pprev = Q_s + CovNoPN;
     
+    % ENSURE MEASUREMENT HAPPENS AT THIS TIME!!!
+    % determine if time aligns with observation
+    if ismember(tOverall(i), yHist.obTime)
+        % --- Recompute Sigma Points after Propagation
+        ChiMinusProp = [Xprev, Xprev+gamma*sqrtm(Pprev), Xprev-gamma*sqrtm(Pprev)];
+        
+        % Loop over each element of tOverall and find the matching indices
+        % Find indices where tOverall(i) matches elements in yHist.obTime
+        [row, col] = find(yHist.obTime == tOverall(i));
+        
+        % the row is the index that matches with time
+        obInd = row;
+        % the column is the station number
+        statNumOb = col;
+        
+        % --- Compute the Measurements at Time
+        [computedMeas] = Measurements.ComputeFilterMeasurements(stationECI, i, statNumOb, ChiMinusProp);
+        
+        % Initialize before loop
+        meanPredMeas = zeros(2,1);
+        
+        % Mean Predicted Measurement
+        for SP = 1:2*L+1
+            meanPredMeas = Wm(SP) * computedMeas(:,SP) + meanPredMeas;
+        end
+        
+        Pyy = zeros(2,2);
+        Pxy = zeros(6,2);
+        % --- Innovation and Cross Covariances
+        for innov = 1:2*L+1
+            % Innovation Covariance
+            Pyy = Wc(innov) * (computedMeas(:,innov) - meanPredMeas) * (computedMeas(:,innov) - meanPredMeas)' + Pyy;
+            
+            % Cross Covairnace
+            Pxy = Wc(innov) * (ChiMinusProp(:,innov) - Xprev) * (computedMeas(:,innov) - meanPredMeas)' + Pxy;
+        end
+        % Innovation Covariance
+        Pyy = R + Pyy;
+        
+        % --- Actual Sensor observation for this time
+        ObsMeasRange    = yHist.Range(obInd, statNumOb);
+        ObMeasRangeRate = yHist.RangeRate(obInd, statNumOb);
+        
+        ObMeasurement = [ObsMeasRange; ObMeasRangeRate];
+        
+        % --- Compute Kalman Gain
+        Kk = Pxy * inv(Pyy);
+        
+        % --- Measurement Update
+        Xhat = Xprev + Kk * (ObMeasurement - meanPredMeas);
+        
+        P = Pprev - Kk*Pyy*Kk';
+        
+        % save off residual 
+        OminusC(:,i) = ObMeasurement - meanPredMeas;
+        
+        % set previous observation time 
+        obTimePrev = tOverall(i);
+        
+    else
+        % No observation at this time
+        Xhat = Xprev;
+        P = Pprev;
+    end
     
-    % Computed Measurements (predicted) for each sigma point
+    % reset everything for next go around
+    Xprev = Xhat;
+    Pprev = P;
+    sqrtPprev = sqrtm(Pprev);
+    timePrev = tOverall(i);
     
-        % --- Calculate Computed measurement
-        rangeMeasComp     = refPos - stationPosECI';
-        rangeNormComp     = norm(rangeMeasComp);
-        rangeRateComp     = dot(rangeMeasComp, refVel - stationVelECI') / rangeNormComp;
-    
+    % Save off Histories
+    Xhist(:,i-1) = Xhat;
+    Phist{i-1} = P;
     
     
 end

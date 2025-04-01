@@ -1,4 +1,5 @@
-function [] = UnscentedKF(UKFinputs)
+function [x] = UnscentedKF(UKFinputs)
+
 % This implements a UKF for state esimtation also known as a sigma point
 % filter.
 % It does a really good job with estimating the second moment (covariance)
@@ -59,7 +60,7 @@ for i = 1:length(tOverall)
     if i == 1
         % set filter initial conditions
         XrefPrev = X0;
-        sqrtPprev = chol(P0);
+        sqrtPprev = sqrtm(P0);
         timePrev = 0;
         
         % Set time for last observation
