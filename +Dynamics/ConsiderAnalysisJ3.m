@@ -1,4 +1,8 @@
-function [ydot, A] = DynamicsA_J2_J3(t, Y, mu, J2, J3, Re)
+function [thetaDot] = ConsiderAnalysisJ3(t, Y)
+% This function numerically propagates dynamics for a consider analysis
+% with J3 being in the consider parameters
+
+
 % velocity maps to itself - state prop
 ydot(1:3,1) = Y(4:6,1);
 
@@ -80,5 +84,28 @@ phiDot = A * phi;
 
 ydot(7:length(Y)) = reshape(phiDot, [36, 1]);
 
+% maybe theta is propagated the same way as phi just wrt to J3? Only 
 
-end
+
+% --- Lets get B(t): partial F wrt partial C 
+
+% syms x y z mu J2 J3 Re
+% % compute r
+% r = sqrt(x^2 + y^2 + z^2);
+% 
+% % Accel partials
+% apertx = (J2*Re^2*mu*x)/(x^2 + y^2 + z^2)^(5/2) - (mu*x)/(x^2 + y^2 + z^2)^(3/2) + (3*J3*Re^3*mu*x*z)/(x^2 + y^2 + z^2)^(7/2) - (5*J2*Re^2*mu*x*(x^2 + y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(7/2)) - (7*J3*Re^3*mu*x*z*(3*x^2 + 3*y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(9/2));
+% aperty = (J2*Re^2*mu*y)/(x^2 + y^2 + z^2)^(5/2) - (mu*y)/(x^2 + y^2 + z^2)^(3/2) + (3*J3*Re^3*mu*y*z)/(x^2 + y^2 + z^2)^(7/2) - (5*J2*Re^2*mu*y*(x^2 + y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(7/2)) - (7*J3*Re^3*mu*y*z*(3*x^2 + 3*y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(9/2));
+% apertz = (J3*Re^3*mu*(3*x^2 + 3*y^2 - 6*z^2))/(2*(x^2 + y^2 + z^2)^(7/2)) - (mu*z)/(x^2 + y^2 + z^2)^(3/2) - (2*J2*Re^2*mu*z)/(x^2 + y^2 + z^2)^(5/2) - (5*J2*Re^2*mu*z*(x^2 + y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(7/2)) - (7*J3*Re^3*mu*z^2*(3*x^2 + 3*y^2 - 2*z^2))/(2*(x^2 + y^2 + z^2)^(9/2));
+% 
+%  aperts = [apertx, aperty, apertz];
+%  
+%  Bpartials = simplify(jacobian(aperts, [J3]))
+ 
+ % Construct B(t)
+ B(1,1) = -(5*Re^3*mu*x*z*(3*x^2 + 3*y^2 - 4*z^2))/(2*(x^2 + y^2 + z^2)^(9/2));
+ B(2,1) = -(5*Re^3*mu*y*z*(3*x^2 + 3*y^2 - 4*z^2))/(2*(x^2 + y^2 + z^2)^(9/2));
+ B(3,1) = (Re^3*mu*(3*x^4 + 6*x^2*y^2 - 24*x^2*z^2 + 3*y^4 - 24*y^2*z^2 + 8*z^4))/(2*(x^2 + y^2 + z^2)^(9/2)); 
+ 
+ % propagate theta 
+ thetaDot = A * theta + B; 
