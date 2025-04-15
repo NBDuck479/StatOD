@@ -1,4 +1,4 @@
-function [thetaDot] = ConsiderAnalysisJ3(t, Y)
+function [ydot] = ConsiderAnalysisJ3(t, Y)
 % This function numerically propagates dynamics for a consider analysis
 % with J3 being in the consider parameters
 
@@ -82,7 +82,7 @@ phiDot = A * phi;
 
 % STM is second part of state dot output
 
-ydot(7:length(Y)) = reshape(phiDot, [36, 1]);
+ydot(7:44) = reshape(phiDot, [36, 1]);
 
 % maybe theta is propagated the same way as phi just wrt to J3? Only 
 
@@ -109,3 +109,7 @@ ydot(7:length(Y)) = reshape(phiDot, [36, 1]);
  
  % propagate theta 
  thetaDot = A * theta + B; 
+
+% put entire state vector together 
+% [Pos, Vel, STM, Theta]
+ydot(45:48) = thetaDot; 
