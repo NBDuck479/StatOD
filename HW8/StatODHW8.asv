@@ -1,0 +1,158 @@
+%% StatOD Homework 8 
+
+
+Re       = 6378.13;
+DragRho0 = 3.6140e-22; % kg/km^3 
+r0Drag   = 700 + Re; % km
+DragH    = 88.667;  % km
+Area     = 3*10^-6; % km^2
+Mass     = 970;     % kg
+Cd       = 2.0; 
+mu       = 398600.4415;
+J2       = 0.00108248;
+omegaEarth = 7.2921158553*10^-5; % rad
+fig = 1; 
+
+% -- Propagate orbit with mu, J2, Drag 
+% Must be LEO 
+
+% intial LEO orbit 
+Y0 = [6871; 30; 50; 0; 7.6; 0.2];
+
+time = 0:100:86400;
+
+% propagate orbit 
+odeoptions = odeset('RelTol', 1e-12, 'AbsTol', 1e-12);
+[T,Ynom] = ode45(@Dynamics.Numeric_J2_Drag_Prop, time, Y0, odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+
+% [T,YtwoBod] = ode45(@Dynamics.Numeric2bodyProp, time, Y0, odeoptions, mu, Re); 
+
+% A Priori Covariance 
+sigma_r = 1; % km
+simga_v = 1/1000; %km/s
+
+P = diag([sigma_r^2, sigma_r^2, sigma_r^2, simga_v^2, simga_v^2, simga_v^2]);
+
+for i = 1:1000
+    randomY0(:,i) = Y0 + sqrtm(P)*randn(6,1);
+end
+
+% Run simulations in parallel
+for i = 1:1000
+    [Tmonte{i}, Ymonte{i}] = ode45(@Dynamics.Numeric_J2_Drag_Prop, time, randomY0(:, i), ...
+        odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+end
+
+% save off the Ymonte data!!! 
+
+
+%% 
+
+% A new state propagation every 6 columns
+YmonteCat = horzcat(Ymonte{:});
+
+timeIdx = 860; 
+Utility.CornerPlots(YmonteCat, Ynom, timeIdx, time)
+
+%% Linear Covariance 
+
+% propagate initial covariance with CKF time update 
+odeoptions = odeset('RelTol', 1e-12, 'AbsTol', 1e-12);
+[T,YLinCov] = ode45(@Dynamics.Numeric_J2_Drag_Prop, time, [Y0; reshape(eye(6,6), [6^2,1])], odeoptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+
+% STM maps from start to final time 
+STM = reshape(YLinCov(timeIdx, 6+1:end), [6,6]); 
+
+Pf = STM * P * STM'; 
+
+[V,D] = eig([Pf([1;2]), Pf([7;8])]); 
+
+timeIdx = 860; 
+Utility.LinCovCornerPlot(YmonteCat, Ynom, timeIdx, YLinCov, P, time)
+
+%% Unscented Covariance Propagation 
+timeIdx = 860; 
+% --- Compute Weights for Sigma Points ---
+% Weight Parameters
+L = 6;
+a = 0.01; 
+B = 2; 
+sqrtPprev = sqrtm(P);
+NumStates = 6; 
+kappa   = 3 - L;
+lambda  = a^2*(L+kappa)-L;
+gamma   = sqrt(L+lambda);
+
+% Weight for Mean and Covariance
+Wm(1) = lambda / (L+lambda);
+Wc(1) = (lambda / (L+lambda)) + (1 - a^2 + B);
+
+% add weights for other sigma points
+for j = 2:2*L+1
+    Wm(j) = 1 / (2*(L+lambda));
+    Wc(j) = 1 / (2*(L+lambda));
+end
+assert(.999 < sum(Wm) < 1.0001, 'Weights of mean sigma points must be 1')
+
+% --- Compute Sigma Points
+% Use previous time step results
+chiPrev = [Y0(1:NumStates), Y0(1:NumStates)+gamma*sqrtPprev, Y0(1:NumStates)-gamma*sqrtPprev];
+
+% --- Propagate Sigma Points ---
+% Set integrator options
+odeOptions = odeset('AbsTol',1e-12,'RelTol', 1e-12);
+
+for SigPt = 1:2*L+1
+    [T, propSigmaPt] = ode45(@Dynamics.Numeric_J2_Drag_Prop, [0,time(timeIdx)], chiPrev(:,SigPt), odeOptions, Re, omegaEarth, Area, Mass, DragH, r0Drag, DragRho0);
+
+    % Save the propagated Sigma points
+    chiMinus(SigPt,:) = propSigmaPt(end,:);
+end
+    
+ % --- Time update ---
+    weightedSigmaPt = zeros(NumStates,1);
+    Xprev           = zeros(NumStates,1);
+    CovNoPNloop     = zeros(NumStates,NumStates);
+    CovNoPN         = zeros(NumStates,NumStates);
+    
+    % For loop State Time Update
+    for q = 1:2*L+1
+        % Loop over each sigma point q for State
+        weightedSigmaPt = Wm(q) * chiMinus(q,:);
+        
+        % Summation
+        Xprev = weightedSigmaPt' + Xprev;
+    end
+    
+    for w = 1:2*L+1
+        % Loop each sigma point for covariance
+        CovNoPNloop = Wc(w) * (chiMinus(w,:)' - Xprev) * (chiMinus(w,:)' - Xprev)';
+        
+        % Summation
+        CovNoPN = CovNoPN + CovNoPNloop;
+    end
+    
+    % Final covariance with unscented transform 
+    Pf = CovNoPN;
+
+    Utility.UnscentedCornerPlots(YmonteCat, Ynom, timeIdx, Pf, time)
+    
+    
+    %% Gaussian Sums 
+    
+    numMixands = 3; 
+    
+    % first mixand has mu at Y0 
+    muOne = Y0; 
+    
+    % second has mu at some random deviation of that 
+    muTwo = [6.8728*10^3;0.0313*10^3;0.0494*10^3;0.0010;7.599;0.1997];
+    
+    % third mu 
+    muThree = 
+    6.8711*10^3
+    0.0293
+    0.0522
+   -0.0000
+    0.0076
+    0.0002
